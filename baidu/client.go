@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/langhuachuanshi/panbaidu-go/baidu/auth"
+	"github.com/langhuachuanshi/panbaidu-go/baidu/download"
 	"github.com/langhuachuanshi/panbaidu-go/baidu/file"
 	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
 	"github.com/langhuachuanshi/panbaidu-go/baidu/management"
@@ -89,6 +90,11 @@ func (c *Client) accessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return t.AccessToken, nil
+}
+
+// RawToken 返回当前 access_token（自动刷新）。供需要手动拼接 token 的场景（如下载直链）。
+func (c *Client) RawToken(ctx context.Context) (string, error) {
+	return c.accessToken(ctx)
 }
 
 // —— invoker.Invoker 实现 ——
@@ -191,6 +197,9 @@ func (c *Client) Management() *management.Service { return management.New(c) }
 
 // Upload 返回上传 service。
 func (c *Client) Upload() *upload.Service { return upload.New(c) }
+
+// Download 返回下载 service。
+func (c *Client) Download() *download.Service { return download.New(c, c) }
 
 // 编译期保证 Client 实现 Invoker。
 var _ invoker.Invoker = (*Client)(nil)
