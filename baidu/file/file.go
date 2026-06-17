@@ -48,15 +48,22 @@ func (s *Service) List(ctx context.Context, req *ListRequest) ([]*types.File, er
 	var all []*types.File
 	start := req.Start
 	for {
+		// 按需传参：百度对部分参数传空串敏感，只传有值的。
 		params := map[string]string{
 			"method": "list",
 			"dir":    dir,
-			"order":  req.Order,
-			"desc":   boolToStr(req.Desc),
 			"start":  strconv.Itoa(start),
 			"limit":  strconv.Itoa(pageSize),
-			"web":    boolToStr(req.Web),
-			"folder": boolToStr(req.Folder),
+		}
+		if req.Order != "" {
+			params["order"] = req.Order
+			params["desc"] = boolToStr(req.Desc) // desc 必须配 order
+		}
+		if req.Web {
+			params["web"] = "1"
+		}
+		if req.Folder {
+			params["folder"] = "1"
 		}
 		var resp listResponse
 		if err := invoker.GetAndDecode(ctx, s.inv, "/xpan/file", params, &resp); err != nil {
