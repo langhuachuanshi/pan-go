@@ -1,0 +1,24 @@
+# 敏感凭证（密钥/token），绝不提交
+.env
+*.secret
+credentials.json
+
+# token 持久化
+token.json
+
+# 本地测试用的临时授权码
+auth_code.txt
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
