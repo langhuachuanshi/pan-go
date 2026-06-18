@@ -1,4 +1,4 @@
-// 实测：列出网盘根目录文件，验证 access_token 注入与 list 接口。
+// 实测：列出网盘根目录文件，验证 BDUSS cookie 鉴权与 list 接口。
 package main
 
 import (
@@ -12,22 +12,18 @@ import (
 	"github.com/langhuachuanshi/panbaidu-go/baidu/file"
 )
 
-func appKey() string { return os.Getenv("PANBAIDU_APP_KEY") }
-func secretKey() string { return os.Getenv("PANBAIDU_SECRET_KEY") }
-
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	c, err := baidu.New(ctx, &baidu.Config{
-		AppKey:     appKey(),
-		SecretKey:  secretKey(),
+		BDUSS: os.Getenv("PANBAIDU_BDUSS"),
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	files, err := c.Files().List(ctx, &file.ListRequest{Dir: "/", Limit: 20})
+	files, err := c.Files().List(ctx, &file.ListRequest{Dir: "/", Num: 20})
 	if err != nil {
 		log.Fatalf("列文件失败: %v", err)
 	}

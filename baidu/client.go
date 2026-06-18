@@ -1,16 +1,22 @@
-// Package baidu 是百度网盘开放平台的 Go SDK 主包。
+// Package baidu 是百度网盘网页端（抓包）的 Go SDK 主包。
 //
-// 基于 OAuth 2.0 鉴权（access_token），通过开放平台官方 REST API 操作网盘。
-// 域名分三套：
-//   - openapi.baidu.com：OAuth 授权/换 token（在 auth 包内）
-//   - pan.baidu.com：业务接口（列表/上传预创建/创建/文件管理）
-//   - d.pcs.baidu.com：分片上传（PCS）
+// 基于 BDUSS + STOKEN cookie 鉴权（网页登录态），走网页端 REST API 操作网盘。
+// 与 openapi 分支（OAuth + /xpan/*）是两套完全不同的鉴权模型，不要混用。
+//
+// 所有接口走 pan.baidu.com（实测确认，旧的 pcs.baidu.com 路线已失效，报 31030 pcs token not exist）：
+//   - /api/list：文件列表（GET，仅需 BDUSS）
+//   - /api/create：建目录 / 创建文件（POST，需 STOKEN）
+//   - /api/precreate：预上传（POST，需 STOKEN）
+//   - /api/filemanager?opera={move|rename|delete}：文件管理（POST，需 STOKEN）
+//   - /pcs/superfile2：分片上传（POST multipart，走 pcs 域名）
+//
+// 通用约定（实测确认）：query 带 channel=chunlei&web=1&app_id=250528&clienttype=0，
+// 写操作额外带 bdstoken，header 带 Referer: https://pan.baidu.com/disk/main，cookie=BDUSS+STOKEN。
 //
 // 典型用法：
 //
-//	c, _ := baidu.New(ctx, &baidu.Config{AppKey: "...", SecretKey: "..."})
-//	// 首次授权：浏览器打开 c.AuthorizeURL() → 拿 code → c.ExchangeToken(ctx, code)
-//	files, _ := c.Files().List(ctx, "/")
+//	c, _ := baidu.New(&baidu.Config{BDUSS: "...", STOKEN: "..."})
+//	files, _ := c.Files().List(ctx, &file.ListRequest{Dir: "/"})
 package baidu
 
 import (
@@ -20,6 +26,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 
@@ -31,21 +38,22 @@ import (
 	"github.com/langhuachuanshi/panbaidu-go/baidu/upload"
 )
 
-// 业务接口域名。
+// 接口域名（实测：网页端接口全走 pan.baidu.com，pcs 仅用于分片上传域名）。
 const (
-	apiBase = "https://pan.baidu.com/rest/2.0" // 业务接口
-	pcsBase = "https://d.pcs.baidu.com/rest/2.0" // 分片上传（PCS）
+	panBase = "https://pan.baidu.com"          // 网页端 API（/api/*）
+	pcsBase = "https://d.pcs.baidu.com"        // 分片上传域名（superfile2）
 )
 
 // 通用 header。
-const userAgent = "panbaidu-go/1.0"
+const (
+	userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+	referer   = "https://pan.baidu.com/disk/main"
+)
 
 // Config SDK 配置。
 type Config struct {
-	AppKey      string
-	SecretKey   string
-	RedirectURI string // 授权回调地址，默认 oob
-	TokenFile   string // token 持久化文件，默认 ~/.panbaidu/token.json
+	BDUSS  string // 网页端登录 cookie，必填
+	STOKEN string // 写操作必需（list 可空），必填
 }
 
 // Client 百度网盘客户端。线程安全。
@@ -54,106 +62,71 @@ type Client struct {
 	http *http.Client
 }
 
-// New 创建 Client。AppKey/SecretKey 必填。
-// 不要求已有 token——可先创建 Client，再走 ExchangeToken 完成首次授权。
-func New(_ context.Context, cfg *Config) (*Client, error) {
-	if cfg == nil || cfg.AppKey == "" || cfg.SecretKey == "" {
-		return nil, fmt.Errorf("baidu: AppKey 和 SecretKey 必填")
+// New 创建 Client。BDUSS 必填，STOKEN 建议填（写操作需要）。
+func New(ctx context.Context, cfg *Config) (*Client, error) {
+	if cfg == nil || cfg.BDUSS == "" {
+		return nil, fmt.Errorf("baidu: BDUSS 必填")
 	}
-	mgr := auth.New(&auth.Config{
-		AppKey:      cfg.AppKey,
-		SecretKey:   cfg.SecretKey,
-		RedirectURI: cfg.RedirectURI,
-		TokenFile:   cfg.TokenFile,
-	})
-	return &Client{
-		mgr:  mgr,
-		http: &http.Client{Timeout: 60 * 1e9}, // 60s
-	}, nil
-}
-
-// —— 鉴权相关（委托给 auth.Manager）——
-
-// AuthorizeURL 返回用户授权链接（浏览器打开，授权后拿 code）。
-func (c *Client) AuthorizeURL() string { return c.mgr.AuthorizeURL() }
-
-// ExchangeToken 用授权码换 token 并持久化（首次授权用）。
-func (c *Client) ExchangeToken(ctx context.Context, code string) error {
-	_, err := c.mgr.ExchangeToken(ctx, code)
-	return err
-}
-
-// accessToken 取当前有效 token（自动刷新）。
-func (c *Client) accessToken(ctx context.Context) (string, error) {
-	t, err := c.mgr.GetToken(ctx)
+	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return t.AccessToken, nil
-}
-
-// RawToken 返回当前 access_token（自动刷新）。供需要手动拼接 token 的场景（如下载直链）。
-func (c *Client) RawToken(ctx context.Context) (string, error) {
-	return c.accessToken(ctx)
+	// BDUSS + STOKEN 塞进 cookiejar，domain=.baidu.com，后续所有请求自动携带。
+	panURL := &url.URL{Scheme: "https", Host: "pan.baidu.com"}
+	cookies := []*http.Cookie{
+		{Name: "BDUSS", Value: cfg.BDUSS, Domain: ".baidu.com"},
+	}
+	if cfg.STOKEN != "" {
+		cookies = append(cookies, &http.Cookie{Name: "STOKEN", Value: cfg.STOKEN, Domain: ".baidu.com"})
+	}
+	jar.SetCookies(panURL, cookies)
+	return &Client{
+		mgr:  auth.New(&auth.Config{BDUSS: cfg.BDUSS, STOKEN: cfg.STOKEN}),
+		http: &http.Client{Timeout: 60 * 1e9, Jar: jar}, // 60s
+	}, nil
 }
 
 // —— invoker.Invoker 实现 ——
 
-// Get 发 GET 请求（业务接口，走 pan.baidu.com）。
-// access_token 自动注入到 query。
+// Get 发 GET 请求（list 用）。注入通用 query，BDUSS cookie 自动带，无需 bdstoken。
+// path 是相对 panBase 的路径（如 /api/list）。
 func (c *Client) Get(ctx context.Context, path string, params map[string]string) ([]byte, int, error) {
-	tok, err := c.accessToken(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	q := url.Values{}
-	q.Set("access_token", tok)
-	for k, v := range params {
-		q.Set(k, v)
-	}
-	fullURL := apiBase + path + "?" + q.Encode()
+	q := buildQuery(params, "")
+	fullURL := panBase + path + "?" + q.Encode()
 	return c.do(ctx, http.MethodGet, fullURL, nil, "")
 }
 
-// PostForm 发 POST form-urlencoded 请求（业务接口）。
-// access_token 在 query，业务参数在 body。
+// PostForm 发 POST form 请求（写操作用）。注入通用 query + bdstoken，cookie 自动带。
+// path 相对 panBase。bdstoken 自动获取并注入（需配置 STOKEN）。
 func (c *Client) PostForm(ctx context.Context, path string, body map[string]string, params map[string]string) ([]byte, int, error) {
-	tok, err := c.accessToken(ctx)
+	bdstoken, err := c.mgr.BDstoken(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("获取 bdstoken 失败: %w", err)
 	}
-	q := url.Values{}
-	q.Set("access_token", tok)
-	for k, v := range params {
-		q.Set(k, v)
-	}
+	q := buildQuery(params, bdstoken)
+	fullURL := panBase + path + "?" + q.Encode()
 	form := url.Values{}
 	for k, v := range body {
 		form.Set(k, v)
 	}
-	fullURL := apiBase + path + "?" + q.Encode()
 	return c.do(ctx, http.MethodPost, fullURL, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 }
 
-// PostMultipart 发 POST multipart 请求（仅分片上传用，走 PCS 域名）。
-// 必须先 buffer 出 body 带 Content-Length（百度 PCS 不支持 chunked）。
+// PostMultipart 发 POST multipart 请求（仅分片上传用）。
+// baseURL 指定域名：分片上传传 pcsBase，其他传 ""（默认 panBase）。
+// path 是相对路径。先 buffer 出 body 带 Content-Length（百度不支持 chunked）。
 func (c *Client) PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, file []byte) ([]byte, int, error) {
-	tok, err := c.accessToken(ctx)
+	bdstoken, err := c.mgr.BDstoken(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("获取 bdstoken 失败: %w", err)
 	}
-	q := url.Values{}
-	q.Set("access_token", tok)
-	for k, v := range params {
-		q.Set(k, v)
-	}
+	q := buildQuery(params, bdstoken)
 	base := baseURL
 	if base == "" {
-		base = pcsBase
+		base = panBase
 	}
 	fullURL := base + path + "?" + q.Encode()
 
-	// 先 buffer 整个 multipart body（带 Content-Length）。
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	fw, err := mw.CreateFormFile(fieldName, fileName)
@@ -168,13 +141,29 @@ func (c *Client) PostMultipart(ctx context.Context, baseURL, path string, params
 	return c.do(ctx, http.MethodPost, fullURL, bytes.NewReader(buf.Bytes()), mw.FormDataContentType())
 }
 
-// do 执行请求。
+// buildQuery 合并通用 query 参数（channel/web/app_id/clienttype）+ 业务参数 + 可选 bdstoken。
+func buildQuery(params map[string]string, bdstoken string) url.Values {
+	q := url.Values{}
+	for k, v := range auth.CommonQuery() {
+		q.Set(k, v)
+	}
+	for k, v := range params {
+		q.Set(k, v)
+	}
+	if bdstoken != "" {
+		q.Set("bdstoken", bdstoken)
+	}
+	return q
+}
+
+// do 执行请求。注入 Referer 和 UA。
 func (c *Client) do(ctx context.Context, method, fullURL string, body io.Reader, contentType string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Referer", referer)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -199,7 +188,7 @@ func (c *Client) Management() *management.Service { return management.New(c) }
 func (c *Client) Upload() *upload.Service { return upload.New(c) }
 
 // Download 返回下载 service。
-func (c *Client) Download() *download.Service { return download.New(c, c) }
+func (c *Client) Download() *download.Service { return download.New(c) }
 
 // 编译期保证 Client 实现 Invoker。
 var _ invoker.Invoker = (*Client)(nil)

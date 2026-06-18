@@ -22,3 +22,6 @@ auth_code.txt
 .vscode/
 .idea/
 *.swp
+
+# 调研用的第三方源码（BaiduPCS-Go/alist 等，仅供参考，不纳入本项目）
+.research/

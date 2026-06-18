@@ -3,10 +3,11 @@
 // 设计同 quark-go：主包 Client 实现 Invoker，各业务子包依赖接口而非主包，
 // 避免循环依赖。
 //
-// 百度开放平台的特点：
-//   - OAuth 鉴权（access_token），不是 cookie
-//   - 业务接口域名 pan.baidu.com，分片上传域名 d.pcs.baidu.com
-//   - 响应外层 {errno, ...}，errno==0 才成功
+// 网页端（BDUSS 方案）的特点：
+//   - BDUSS + STOKEN cookie 鉴权，由 cookiejar 自动携带
+//   - 通用 query（channel=chunlei&web=1&app_id=250528&clienttype=0）由 client 自动注入
+//   - 写操作（PostForm/PostMultipart）的 bdstoken 由 client 自动注入
+//   - 所有接口走 pan.baidu.com，响应外层 {errno, ...}，errno==0 才成功
 package invoker
 
 import (
@@ -15,7 +16,7 @@ import (
 	"fmt"
 )
 
-// APIError 百度开放平台业务错误。
+// APIError 百度业务错误。
 // 百度错误约定：errno != 0 即失败（errno==0 成功）。
 type APIError struct {
 	Errno   int    // 0=成功，非0=失败
@@ -34,16 +35,15 @@ func (e *APIError) Error() string {
 }
 
 // Invoker 各业务子包依赖的调用接口。
+// path 都是相对 pan.baidu.com 的路径（如 /api/list、/api/create）。
 type Invoker interface {
-	// Get 发 GET 请求（业务接口，走 pan.baidu.com）。
-	// access_token 自动注入，业务参数由 params 提供。
+	// Get 发 GET 请求（list 用）。通用 query + cookie 自动注入，无需 bdstoken。
 	Get(ctx context.Context, path string, params map[string]string) ([]byte, int, error)
 
-	// PostForm 发 POST form-urlencoded 请求（业务接口）。
+	// PostForm 发 POST form 请求（写操作）。通用 query + cookie + bdstoken 自动注入。
 	PostForm(ctx context.Context, path string, body map[string]string, params map[string]string) ([]byte, int, error)
 
-	// PostMultipart 发 POST multipart 请求（仅分片上传用，走 PCS 域名）。
-	// fieldName/fileName 是文件部分的字段名和文件名，data 是文件内容。
+	// PostMultipart 发 POST multipart 请求（仅分片上传用）。通用 query + cookie + bdstoken 自动注入。
 	PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error)
 }
 

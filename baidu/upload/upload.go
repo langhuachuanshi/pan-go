@@ -1,13 +1,14 @@
-// Package upload 实现百度网盘文件上传。
+// Package upload 实现百度网盘文件上传（网页端 / BDUSS 方案）。
 //
 // 上传三阶段：
-//  1. precreate（预上传）：传 path/size/block_list(分片md5数组)，拿 uploadid
+//  1. precreate（预上传）：POST pan.baidu.com/api/precreate
+//     传 path/size/block_list(分片md5数组)，拿 uploadid
 //     - return_type=2 表示秒传成功，直接跳到第3步
 //     - return_type=1 需要上传分片，返回 block_list 是待上传分片序号
-//  2. superfile2（分片上传）：每片单独 POST 到 PCS 域名，拿该片 md5
-//  3. create（创建文件）：传 uploadid + block_list(各片实际md5)，落库
+//  2. superfile2（分片上传）：每片 POST 到 pcs.baidu.com/rest/2.0/pcs/superfile2，拿该片 md5
+//  3. create（创建文件）：POST pan.baidu.com/api/create，传 uploadid + block_list 落库
 //
-// 分片固定 4MB，block_list 是 hex 小写 md5 数组。
+// 鉴权靠 BDUSS cookie + app_id（不是 access_token）。分片固定 4MB，block_list 是 hex 小写 md5 数组。
 package upload
 
 import (
@@ -25,6 +26,9 @@ import (
 
 // 分片大小（百度固定 4MB）。
 const partSize = 4 * 1024 * 1024
+
+// 分片上传域名（superfile2，走 PCS）。
+const pcsUploadBase = "https://d.pcs.baidu.com/rest/2.0/pcs/superfile2"
 
 // Service 上传入口。
 type Service struct {
@@ -80,7 +84,7 @@ func (s *Service) Upload(ctx context.Context, req *UploadRequest) (*types.File, 
 		ReturnType int    `json:"return_type"` // 1=需上传 2=秒传
 		BlockList  []int  `json:"block_list"`  // 待上传分片序号（return_type=1 时）
 	}
-	if err := invoker.PostFormAndDecode(ctx, s.inv, "/xpan/file", preBody, map[string]string{"method": "precreate"}, &pre); err != nil {
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/precreate", preBody, nil, &pre); err != nil {
 		return nil, err
 	}
 	if pre.Errno != 0 {
@@ -115,7 +119,7 @@ func (s *Service) Upload(ctx context.Context, req *UploadRequest) (*types.File, 
 		Errno int        `json:"errno"`
 		Data  types.File `json:"data"`
 	}
-	if err := invoker.PostFormAndDecode(ctx, s.inv, "/xpan/file", createBody, map[string]string{"method": "create"}, &cre); err != nil {
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/create", createBody, nil, &cre); err != nil {
 		return nil, err
 	}
 	if cre.Errno != 0 {
@@ -168,7 +172,7 @@ func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, pa
 			Errno int    `json:"errno"`
 			MD5   string `json:"md5"`
 		}
-		if err := invoker.PostMultipartAndDecode(ctx, s.inv, "", "/pcs/superfile2", params, "file", "file", buf[:n], &resp); err != nil {
+		if err := invoker.PostMultipartAndDecode(ctx, s.inv, pcsUploadBase, "", params, "file", "file", buf[:n], &resp); err != nil {
 			return nil, err
 		}
 		if resp.Errno != 0 {
@@ -235,7 +239,7 @@ func joinPath(dir, name string) string {
 func errnoMsg(errno int) string {
 	switch errno {
 	case -6:
-		return "access_token 失效或权限不足"
+		return "BDUSS 失效或权限不足（请重新登录网页端获取新 BDUSS）"
 	case -7:
 		return "路径不存在或无权访问"
 	case -8:

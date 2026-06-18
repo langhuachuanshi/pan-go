@@ -19,13 +19,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	c, err := baidu.New(ctx, &baidu.Config{AppKey: os.Getenv("PANBAIDU_APP_KEY"), SecretKey: os.Getenv("PANBAIDU_SECRET_KEY")})
+	c, err := baidu.New(ctx, &baidu.Config{BDUSS: os.Getenv("PANBAIDU_BDUSS"), STOKEN: os.Getenv("PANBAIDU_STOKEN")})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// 百度开放平台应用有专属目录 /apps/<应用名>/，但路径未知。
-	// 先尝试直接建测试目录，从错误信息推断可用路径。
+	// 网页端方案可在根目录建目录（不像开放平台需 /apps 专属目录）。
 	testDir := "/panbaidu-go-test"
 
 	// 1. 建测试目录。
@@ -57,7 +56,7 @@ func main() {
 
 	// 3. 列表验证。
 	fmt.Println("\n=== 3. List 验证 ===")
-	files, err := c.Files().List(ctx, &file.ListRequest{Dir: testDir, Limit: 50})
+	files, err := c.Files().List(ctx, &file.ListRequest{Dir: testDir, Num: 50})
 	if err != nil {
 		log.Fatalf("列测试目录失败: %v", err)
 	}
