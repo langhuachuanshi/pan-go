@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/download"
+	"github.com/langhuachuanshi/baidupan-go/baidu"
+	"github.com/langhuachuanshi/baidupan-go/baidu/download"
 )
 
 func main() {

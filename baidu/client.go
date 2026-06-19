@@ -30,12 +30,12 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu/auth"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/download"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/file"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/management"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/upload"
+	"github.com/langhuachuanshi/baidupan-go/baidu/auth"
+	"github.com/langhuachuanshi/baidupan-go/baidu/download"
+	"github.com/langhuachuanshi/baidupan-go/baidu/file"
+	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
+	"github.com/langhuachuanshi/baidupan-go/baidu/management"
+	"github.com/langhuachuanshi/baidupan-go/baidu/upload"
 )
 
 // 接口域名（实测：网页端接口全走 pan.baidu.com，pcs 仅用于分片上传域名）。

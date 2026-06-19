@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/file"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/upload"
+	"github.com/langhuachuanshi/baidupan-go/baidu"
+	"github.com/langhuachuanshi/baidupan-go/baidu/file"
+	"github.com/langhuachuanshi/baidupan-go/baidu/upload"
 )
 
 func main() {

@@ -14,8 +14,8 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/types"
+	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
+	"github.com/langhuachuanshi/baidupan-go/baidu/types"
 )
 
 // Service 文件查询入口。

@@ -15,7 +15,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
+	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 )
 
 // ErrNotImplemented 下载未实现。

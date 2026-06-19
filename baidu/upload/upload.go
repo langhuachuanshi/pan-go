@@ -20,8 +20,8 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/types"
+	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
+	"github.com/langhuachuanshi/baidupan-go/baidu/types"
 )
 
 // 分片大小（百度固定 4MB）。

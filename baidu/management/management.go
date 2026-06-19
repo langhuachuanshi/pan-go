@@ -14,8 +14,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/langhuachuanshi/panbaidu-go/baidu/invoker"
-	"github.com/langhuachuanshi/panbaidu-go/baidu/types"
+	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
+	"github.com/langhuachuanshi/baidupan-go/baidu/types"
 )
 
 // Service 文件管理入口。

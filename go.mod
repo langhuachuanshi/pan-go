@@ -1,3 +1,3 @@
-module github.com/langhuachuanshi/panbaidu-go
+module github.com/langhuachuanshi/baidupan-go
 
 go 1.26.2
