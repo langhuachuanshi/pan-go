@@ -1,10 +1,9 @@
-// 实测下载：当前 main 分支（BDUSS 方案）下载未实现，本程序验证占位错误正确返回。
-// 完整下载实测请用 openapi 分支。
+// 实测下载：验证下载 URL 获取。
+// 需要 PANBAIDU_BDUSS 环境变量。
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -23,16 +22,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// 调用下载，预期返回 ErrNotImplemented。
-	err = c.Download().Download(ctx, &download.DownloadRequest{FSID: 1})
-	if errors.Is(err, download.ErrNotImplemented) {
-		fmt.Printf("✓ 占位生效：%v\n", err)
-		fmt.Println("  下载功能尚未实现，请使用 openapi 分支。")
-		return
-	}
+	// 获取 PCS 直链下载 URL（按路径）
+	url, err := c.Download().GetDownloadURL(ctx, &download.DownloadRequest{
+		Path: "/test.txt",
+	})
 	if err != nil {
-		log.Fatalf("下载返回了非预期的错误: %v", err)
+		log.Fatal("获取下载 URL 失败:", err)
 	}
-	log.Fatal("下载意外成功（占位应返回错误）")
-}
+	fmt.Printf("PCS 下载直链: %s\n", url)
 
+	// 也可以用 PanAPI 方式（需要先设置 PanHome 缓存 + fs_id）
+	fmt.Println("\n下载功能已实现:")
+	fmt.Println("  - PCS 直链: GetDownloadURL(path) -> 直接 HTTP GET 下载")
+	fmt.Println("  - PanAPI:    设置 PanHome 缓存后可按 fs_id 下载")
+	fmt.Println("  - Locate:    GetPCSLocateURL(path, uid, bduss) 获取多节点 URL")
+}

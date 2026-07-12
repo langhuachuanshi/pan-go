@@ -45,6 +45,16 @@ type Invoker interface {
 
 	// PostMultipart 发 POST multipart 请求（仅分片上传用）。通用 query + cookie + bdstoken 自动注入。
 	PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error)
+
+	// GetRaw 发 GET 请求到完整 URL，不注入通用 query。用于特殊接口（如 share/record）。
+	GetRaw(ctx context.Context, fullURL string) ([]byte, int, error)
+
+	// PostFormRaw 发 POST form 到完整 URL，不注入通用 query。用于 share、PCS 等接口。
+	PostFormRaw(ctx context.Context, fullURL string, body map[string]string) ([]byte, int, error)
+
+	// PostMultipartForm 发 POST multipart/form-data（字段模式，非文件上传）。
+	// 用于 PCS meta 等需要 multipart 但不上传文件的接口。
+	PostMultipartForm(ctx context.Context, fullURL string, fields map[string]string) ([]byte, int, error)
 }
 
 // Decode 反序列化，空体不报错。

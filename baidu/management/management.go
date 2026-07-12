@@ -13,6 +13,8 @@ package management
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 	"github.com/langhuachuanshi/baidupan-go/baidu/types"
@@ -62,6 +64,19 @@ func (s *Service) MakeDir(ctx context.Context, dirPath string) (*types.File, err
 }
 
 // —— 移动/重命名（filemanager）/ 删除（filemanager）——
+
+// Copy 把 sourcePaths（一个或多个）复制到 destDir 目录下。
+func (s *Service) Copy(ctx context.Context, sourcePaths []string, destDir string) error {
+	items := make([]map[string]string, 0, len(sourcePaths))
+	for _, src := range sourcePaths {
+		items = append(items, map[string]string{
+			"path":    src,
+			"dest":    destDir,
+			"newname": baseName(src),
+		})
+	}
+	return s.filemanager(ctx, "copy", items, nil)
+}
 
 // Move 把 sourcePaths（一个或多个）移动到 destDir 目录下。
 func (s *Service) Move(ctx context.Context, sourcePaths []string, destDir string) error {
@@ -143,4 +158,94 @@ func errnoMsg(errno int) string {
 	default:
 		return "请求失败"
 	}
+}
+
+// —— 回收站操作 ——
+
+// RecycleFile 回收站文件信息。
+type RecycleFile struct {
+	FSID     int64  `json:"fs_id"`
+	Path     string `json:"path"`
+	Filename string `json:"server_filename"`
+	Size     int64  `json:"size"`
+	IsDir    int    `json:"isdir"`
+	CTime    int64  `json:"server_ctime"`
+	MTime    int64  `json:"server_mtime"`
+}
+
+// RecycleList 获取回收站文件列表。
+// page: 页码，从 1 开始，每页 100 条。
+func (s *Service) RecycleList(ctx context.Context, page int) ([]*RecycleFile, error) {
+	data, _, err := s.inv.Get(ctx, "/api/recycle/list", map[string]string{
+		"num":  "100",
+		"page": strconv.Itoa(page),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("获取回收站列表失败: %w", err)
+	}
+	var resp struct {
+		Errno int             `json:"errno"`
+		List  []*RecycleFile  `json:"list"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("解析回收站列表失败: %w", err)
+	}
+	if resp.Errno != 0 {
+		return nil, invoker.NewAPIError(resp.Errno, "获取回收站列表失败")
+	}
+	return resp.List, nil
+}
+
+// RecycleRestore 从回收站还原文件（通过 fs_id）。
+func (s *Service) RecycleRestore(ctx context.Context, fsIDs []int64) error {
+	ids := make([]string, len(fsIDs))
+	for i, id := range fsIDs {
+		ids[i] = strconv.FormatInt(id, 10)
+	}
+	fidList := "[" + stringsJoin(ids, ",") + "]"
+	body := map[string]string{"fidlist": fidList}
+
+	var resp struct {
+		Errno int `json:"errno"`
+	}
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/restore", body, nil, &resp); err != nil {
+		return err
+	}
+	if resp.Errno != 0 {
+		return invoker.NewAPIError(resp.Errno, "还原失败")
+	}
+	return nil
+}
+
+// RecycleDelete 从回收站彻底删除文件（通过 fs_id）。
+func (s *Service) RecycleDelete(ctx context.Context, fsIDs []int64) error {
+	ids := make([]string, len(fsIDs))
+	for i, id := range fsIDs {
+		ids[i] = strconv.FormatInt(id, 10)
+	}
+	fidList := "[" + stringsJoin(ids, ",") + "]"
+	body := map[string]string{"fidlist": fidList}
+
+	var resp struct {
+		Errno int `json:"errno"`
+	}
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/delete", body, nil, &resp); err != nil {
+		return err
+	}
+	if resp.Errno != 0 {
+		return invoker.NewAPIError(resp.Errno, "彻底删除失败")
+	}
+	return nil
+}
+
+// stringsJoin 连接字符串数组。
+func stringsJoin(ss []string, sep string) string {
+	result := ""
+	for i, s := range ss {
+		if i > 0 {
+			result += sep
+		}
+		result += s
+	}
+	return result
 }

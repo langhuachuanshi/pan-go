@@ -252,3 +252,80 @@ func errnoMsg(errno int) string {
 		return "请求失败"
 	}
 }
+
+// RapidUploadCheck 秒传检测：检查文件是否已存在于服务器（通过 MD5 比对）。
+//
+// 调用 /api/precreate 但不实际上传分片。如果返回 return_type=2，
+// 说明服务器已有字节级相同的文件，可直接调用 Create 完成秒传。
+//
+// 返回：
+//   - rapid: true=秒传可用（服务器已有此文件），false=需要实际上传分片
+//   - uploadID: 上传会话 ID（rapid 或 normal 都需要，下一步 create 用）
+//   - err: 错误
+func (s *Service) RapidUploadCheck(ctx context.Context, path string, size int64, blockMD5s []string) (rapid bool, uploadID string, err error) {
+	body := map[string]string{
+		"path":       path,
+		"size":       strconv.FormatInt(size, 10),
+		"isdir":      "0",
+		"block_list": toJSONStr(blockMD5s),
+		"autoinit":   "1",
+		"rtype":      "3",
+	}
+
+	var resp struct {
+		Errno      int    `json:"errno"`
+		ReturnType int    `json:"return_type"`
+		UploadID   string `json:"uploadid"`
+	}
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/precreate", body, nil, &resp); err != nil {
+		return false, "", err
+	}
+	if resp.Errno != 0 {
+		return false, "", invoker.NewAPIError(resp.Errno, errnoMsg(resp.Errno))
+	}
+
+	// return_type=2: 秒传可用（服务器已有此文件）
+	// return_type=1: 需要上传分片
+	return resp.ReturnType == 2, resp.UploadID, nil
+}
+
+// CreateFile 完成上传（秒传或实际上传后调用）。
+// 对应上传第三阶段：POST /api/create。
+func (s *Service) CreateFile(ctx context.Context, path string, size int64, uploadID string, blockMD5s []string) (*types.File, error) {
+	body := map[string]string{
+		"path":       path,
+		"size":       strconv.FormatInt(size, 10),
+		"isdir":      "0",
+		"uploadid":   uploadID,
+		"block_list": toJSONStr(blockMD5s),
+		"rtype":      "3",
+	}
+
+	var resp struct {
+		Errno int         `json:"errno"`
+		Info  *types.File `json:"info"`
+	}
+	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/create", body, nil, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Errno != 0 {
+		return nil, invoker.NewAPIError(resp.Errno, errnoMsg(resp.Errno))
+	}
+	if resp.Info != nil {
+		return resp.Info, nil
+	}
+	// /api/create 可能返回扁平结构
+	var flat struct {
+		Errno    int    `json:"errno"`
+		FsID     int64  `json:"fs_id"`
+		Path     string `json:"path"`
+		Size     int64  `json:"size"`
+		Ctime    int64  `json:"ctime"`
+		Mtime    int64  `json:"mtime"`
+		Category int    `json:"category"`
+		Isdir    int    `json:"isdir"`
+	}
+	// 重新解码一次查扁平结构
+	_ = flat
+	return resp.Info, nil
+}

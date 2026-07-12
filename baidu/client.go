@@ -31,11 +31,14 @@ import (
 	"strings"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/auth"
+	"github.com/langhuachuanshi/baidupan-go/baidu/clouddl"
 	"github.com/langhuachuanshi/baidupan-go/baidu/download"
 	"github.com/langhuachuanshi/baidupan-go/baidu/file"
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 	"github.com/langhuachuanshi/baidupan-go/baidu/management"
+	"github.com/langhuachuanshi/baidupan-go/baidu/share"
 	"github.com/langhuachuanshi/baidupan-go/baidu/upload"
+	"github.com/langhuachuanshi/baidupan-go/baidu/user"
 )
 
 // 接口域名（实测：网页端接口全走 pan.baidu.com，pcs 仅用于分片上传域名）。
@@ -176,6 +179,39 @@ func (c *Client) do(ctx context.Context, method, fullURL string, body io.Reader,
 	return data, resp.StatusCode, err
 }
 
+// —— 原始请求方法（不注入通用 query / bdstoken） ——
+
+// HTTPClient 返回内部 HTTP 客户端（携带 BDUSS cookie）。
+// 用于下载、PanHome 签名等需要直接 HTTP 操作的场景。
+func (c *Client) HTTPClient() *http.Client { return c.http }
+
+// GetRaw 发 GET 到完整 URL，不注入通用 query。用于 share/record 等特殊接口。
+func (c *Client) GetRaw(ctx context.Context, fullURL string) ([]byte, int, error) {
+	return c.do(ctx, http.MethodGet, fullURL, nil, "")
+}
+
+// PostFormRaw 发 POST form 到完整 URL，不注入通用 query。用于 share、PCS 等特殊接口。
+func (c *Client) PostFormRaw(ctx context.Context, fullURL string, body map[string]string) ([]byte, int, error) {
+	form := url.Values{}
+	for k, v := range body {
+		form.Set(k, v)
+	}
+	return c.do(ctx, http.MethodPost, fullURL, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+}
+
+// PostMultipartForm 发 POST multipart/form-data（字段模式）。
+func (c *Client) PostMultipartForm(ctx context.Context, fullURL string, fields map[string]string) ([]byte, int, error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return nil, 0, err
+		}
+	}
+	mw.Close()
+	return c.do(ctx, http.MethodPost, fullURL, bytes.NewReader(buf.Bytes()), mw.FormDataContentType())
+}
+
 // —— Service 访问方法 ——
 
 // Files 返回文件 service。
@@ -189,6 +225,15 @@ func (c *Client) Upload() *upload.Service { return upload.New(c) }
 
 // Download 返回下载 service。
 func (c *Client) Download() *download.Service { return download.New(c) }
+
+// Share 返回分享 service。
+func (c *Client) Share() *share.Service { return share.New(c) }
+
+// User 返回用户信息 service。
+func (c *Client) User() *user.Service { return user.New(c) }
+
+// CloudDL 返回离线下载 service。
+func (c *Client) CloudDL() *clouddl.Service { return clouddl.New(c) }
 
 // 编译期保证 Client 实现 Invoker。
 var _ invoker.Invoker = (*Client)(nil)
