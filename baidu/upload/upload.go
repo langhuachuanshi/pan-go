@@ -301,31 +301,34 @@ func (s *Service) CreateFile(ctx context.Context, path string, size int64, uploa
 		"rtype":      "3",
 	}
 
-	var resp struct {
-		Errno int         `json:"errno"`
-		Info  *types.File `json:"info"`
-	}
-	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/create", body, nil, &resp); err != nil {
+	data, _, err := s.inv.PostForm(ctx, "/api/create", body, nil)
+	if err != nil {
 		return nil, err
 	}
-	if resp.Errno != 0 {
-		return nil, invoker.NewAPIError(resp.Errno, errnoMsg(resp.Errno))
+
+	// /api/create 可能是嵌套结构 {errno, info:{...}} 也可能是扁平结构 {errno, fs_id, path, ...}
+	var base struct {
+		Errno int             `json:"errno"`
+		Info  json.RawMessage `json:"info"`
 	}
-	if resp.Info != nil {
-		return resp.Info, nil
+	if err := invoker.Decode(data, &base); err != nil {
+		return nil, fmt.Errorf("解析 create 响应失败: %w", err)
 	}
-	// /api/create 可能返回扁平结构
-	var flat struct {
-		Errno    int    `json:"errno"`
-		FsID     int64  `json:"fs_id"`
-		Path     string `json:"path"`
-		Size     int64  `json:"size"`
-		Ctime    int64  `json:"ctime"`
-		Mtime    int64  `json:"mtime"`
-		Category int    `json:"category"`
-		Isdir    int    `json:"isdir"`
+	if base.Errno != 0 {
+		return nil, invoker.NewAPIError(base.Errno, errnoMsg(base.Errno))
 	}
-	// 重新解码一次查扁平结构
-	_ = flat
-	return resp.Info, nil
+	if base.Info != nil {
+		// 嵌套格式 {errno, info:{...}}
+		var f types.File
+		if err := json.Unmarshal(base.Info, &f); err != nil {
+			return nil, fmt.Errorf("解析 create info 失败: %w", err)
+		}
+		return &f, nil
+	}
+	// 扁平格式 {errno, fs_id, path, size, ...}
+	var flat types.File
+	if err := json.Unmarshal(data, &flat); err != nil {
+		return nil, fmt.Errorf("解析 create 扁平响应失败: %w", err)
+	}
+	return &flat, nil
 }

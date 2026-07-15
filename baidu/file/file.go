@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 	"github.com/langhuachuanshi/baidupan-go/baidu/types"
@@ -242,9 +243,16 @@ func (s *Service) BatchMeta(ctx context.Context, fsids []int64) ([]*types.File, 
 
 // MatchPath 通配符匹配文件路径（支持 * 和 ? 通配符）。
 // pattern 如 /temp/*.zip、/video/*/*.mp4。
+// 自动从 pattern 前缀提取起始目录，避免全盘遍历。
 // 底层用 RecurseList + path.Match 过滤。
 func (s *Service) MatchPath(ctx context.Context, pattern string) ([]*types.File, error) {
-	all, err := s.RecurseList(ctx, "/")
+	// 从 pattern 提取不含通配符的最长前缀作为起始目录
+	root := extractDir(pattern)
+	if root == "" {
+		root = "/"
+	}
+
+	all, err := s.RecurseList(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +268,23 @@ func (s *Service) MatchPath(ctx context.Context, pattern string) ([]*types.File,
 	}
 	return matched, nil
 }
+
+// extractDir 从通配符路径中提取不含通配符的最长前缀。
+// 如 /temp/*.zip → /temp，/video/**/*.mp4 → /video。
+func extractDir(pattern string) string {
+	for i, c := range pattern {
+		if c == '*' || c == '?' || c == '[' {
+			base := pattern[:i]
+			// 取上一级目录
+			if idx := strings.LastIndex(base, "/"); idx >= 0 {
+				return base[:idx]
+			}
+			return "/"
+		}
+	}
+	return "/"
+}
+
 
 // fileMetaRaw 兼容 /api/filemetas 的响应格式（字段可能是字符串）。
 type fileMetaRaw struct {

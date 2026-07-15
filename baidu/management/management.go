@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 	"github.com/langhuachuanshi/baidupan-go/baidu/types"
@@ -202,50 +203,38 @@ func (s *Service) RecycleRestore(ctx context.Context, fsIDs []int64) error {
 	for i, id := range fsIDs {
 		ids[i] = strconv.FormatInt(id, 10)
 	}
-	fidList := "[" + stringsJoin(ids, ",") + "]"
-	body := map[string]string{"fidlist": fidList}
+		fidList := "[" + strings.Join(ids, ",") + "]"
+		body := map[string]string{"fidlist": fidList}
 
-	var resp struct {
-		Errno int `json:"errno"`
-	}
-	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/restore", body, nil, &resp); err != nil {
-		return err
-	}
-	if resp.Errno != 0 {
-		return invoker.NewAPIError(resp.Errno, "还原失败")
-	}
-	return nil
-}
-
-// RecycleDelete 从回收站彻底删除文件（通过 fs_id）。
-func (s *Service) RecycleDelete(ctx context.Context, fsIDs []int64) error {
-	ids := make([]string, len(fsIDs))
-	for i, id := range fsIDs {
-		ids[i] = strconv.FormatInt(id, 10)
-	}
-	fidList := "[" + stringsJoin(ids, ",") + "]"
-	body := map[string]string{"fidlist": fidList}
-
-	var resp struct {
-		Errno int `json:"errno"`
-	}
-	if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/delete", body, nil, &resp); err != nil {
-		return err
-	}
-	if resp.Errno != 0 {
-		return invoker.NewAPIError(resp.Errno, "彻底删除失败")
-	}
-	return nil
-}
-
-// stringsJoin 连接字符串数组。
-func stringsJoin(ss []string, sep string) string {
-	result := ""
-	for i, s := range ss {
-		if i > 0 {
-			result += sep
+		var resp struct {
+			Errno int `json:"errno"`
 		}
-		result += s
+		if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/restore", body, nil, &resp); err != nil {
+			return err
+		}
+		if resp.Errno != 0 {
+			return invoker.NewAPIError(resp.Errno, "还原失败")
+		}
+		return nil
 	}
-	return result
-}
+
+	// RecycleDelete 从回收站彻底删除文件（通过 fs_id）。
+	func (s *Service) RecycleDelete(ctx context.Context, fsIDs []int64) error {
+		ids := make([]string, len(fsIDs))
+		for i, id := range fsIDs {
+			ids[i] = strconv.FormatInt(id, 10)
+		}
+		fidList := "[" + strings.Join(ids, ",") + "]"
+		body := map[string]string{"fidlist": fidList}
+
+		var resp struct {
+			Errno int `json:"errno"`
+		}
+		if err := invoker.PostFormAndDecode(ctx, s.inv, "/api/recycle/delete", body, nil, &resp); err != nil {
+			return err
+		}
+		if resp.Errno != 0 {
+			return invoker.NewAPIError(resp.Errno, "彻底删除失败")
+		}
+		return nil
+	}

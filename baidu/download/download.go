@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 	"github.com/langhuachuanshi/baidupan-go/baidu/panhome"
@@ -334,13 +333,4 @@ func (s *Service) GetPCSLocateURL(ctx context.Context, path string, uid uint64, 
 		return "", fmt.Errorf("download: locate download 未返回链接")
 	}
 	return result.URLs[0].URL, nil
-}
-
-// mergeInt64List 将 int64 数组格式化为 JSON 数组字符串。
-func mergeInt64List(ids ...int64) string {
-	strs := make([]string, len(ids))
-	for i, id := range ids {
-		strs[i] = strconv.FormatInt(id, 10)
-	}
-	return "[" + strings.Join(strs, ",") + "]"
 }

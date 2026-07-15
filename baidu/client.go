@@ -15,7 +15,7 @@
 //
 // 典型用法：
 //
-//	c, _ := baidu.New(&baidu.Config{BDUSS: "...", STOKEN: "..."})
+//	c, _ := baidu.New(ctx, &baidu.Config{BDUSS: "...", STOKEN: "..."})
 //	files, _ := c.Files().List(ctx, &file.ListRequest{Dir: "/"})
 package baidu
 

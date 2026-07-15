@@ -129,9 +129,12 @@ func (s *Service) ShareSet(ctx context.Context, paths []string, opt *ShareOption
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("解析分享响应失败: %w", err)
 	}
-	if resp.Errno != 0 {
-		return nil, invoker.NewAPIError(resp.Errno, "创建分享失败")
-	}
+		if resp.Errno != 0 {
+			return nil, invoker.NewAPIError(resp.Errno, "创建分享失败")
+		}
+		if resp.Link == "" {
+			return nil, invoker.NewAPIError(0, "创建分享失败: 未返回链接")
+		}
 
 	return &Shared{
 		Link:    resp.Link,
