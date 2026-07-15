@@ -28,12 +28,24 @@ type sharePageInfo struct {
 	ShareID  string
 }
 
-// pageInfoRE 从分享页面 JS 提取 bdstoken/uk/share_uk/shareid。
-var pageInfoRE = regexp.MustCompile(`"bdstoken":"(.*?)".*?"uk":(\d+).*?"share_uk":"?(\d+)"?.*?"shareid":"?(\d+)"?`)
+// 分享页里鉴权字段散落在多处，格式混用：
+//   - JSON 片段："share_uk":"34136398","shareid":20676519877
+//   - JS locals：  share_uk:"34136398", shareid:"20676519877"
+//   - bdstoken：   bdstoken:'xxx' 或 "bdstoken":"xxx"
+// 旧的单一贪婪正则要求四字段连续出现，实测匹配不到，导致所有分享被误判为失效。
+// 改为分别提取，值域用 [0-9a-fA-F]（bdstoken）/ \d（其余）兼容引号差异。
+var (
+	bdstokenRE = regexp.MustCompile(`bdstoken['"]?\s*[:=]\s*['"]([0-9a-fA-F]{32})['"]`)
+	shareUKRE  = regexp.MustCompile(`share_uk['"]?\s*[:=]\s*['"]?(\d+)['"]?`)
+	shareIDRE  = regexp.MustCompile(`shareid['"]?\s*[:=]\s*['"]?(\d+)['"]?`)
+	ukRE       = regexp.MustCompile(`[^_]"uk['"]?\s*[:=]\s*['"]?(\d+)['"]?`)
+)
 
 // extractSharePage 访问分享页面，提取鉴权信息。
+// 注意：surl 是 TransferQuery 去掉前缀 "1" 后的短码（供 /share/list 的 shorturl 参数用），
+// 但访问分享页 HTML 必须用完整短链 https://pan.baidu.com/s/1xxx，这里补回前缀。
 func (s *Service) extractSharePage(ctx context.Context, httpClient *http.Client, surl string) (*sharePageInfo, error) {
-	shareURL := "https://pan.baidu.com/s/" + surl
+	shareURL := "https://pan.baidu.com/s/1" + surl
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, shareURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
@@ -52,23 +64,29 @@ func (s *Service) extractSharePage(ctx context.Context, httpClient *http.Client,
 		return nil, fmt.Errorf("读取分享页失败: %w", err)
 	}
 
-	// 检查页面状态
 	bodyStr := string(body)
-	if strings.Contains(bodyStr, "error-404") || strings.Contains(bodyStr, "platform-non-found") {
-		return nil, fmt.Errorf("分享链接不存在或已失效")
-	}
 
-	match := pageInfoRE.FindStringSubmatch(bodyStr)
-	if len(match) < 5 {
+	// shareid 是分享页存在的硬证据：能拿到 shareid 说明分享有效。
+	// 仅在完全没有 shareid 时才判定失效（避免把"请输入提取码"等中间态误判为已失效）。
+	shareIDMatch := shareIDRE.FindStringSubmatch(bodyStr)
+	if len(shareIDMatch) < 2 {
+		if strings.Contains(bodyStr, "error-404") || strings.Contains(bodyStr, "platform-non-found") {
+			return nil, fmt.Errorf("分享链接不存在或已失效")
+		}
 		return nil, fmt.Errorf("未能从分享页提取鉴权信息（可能需要 STOKEN）")
 	}
 
-	return &sharePageInfo{
-		BDstoken: match[1],
-		UK:       match[2],
-		ShareUK:  match[3],
-		ShareID:  match[4],
-	}, nil
+	info := &sharePageInfo{ShareID: shareIDMatch[1]}
+	if m := shareUKRE.FindStringSubmatch(bodyStr); len(m) >= 2 {
+		info.ShareUK = m[1]
+	}
+	if m := bdstokenRE.FindStringSubmatch(bodyStr); len(m) >= 2 {
+		info.BDstoken = m[1]
+	}
+	if m := ukRE.FindStringSubmatch(bodyStr); len(m) >= 2 {
+		info.UK = m[1]
+	}
+	return info, nil
 }
 
 // shareVerifyResp 密码验证响应。
@@ -78,14 +96,16 @@ type shareVerifyResp struct {
 }
 
 // transferShareListResp 转存时获取分享文件列表的响应（与 share.go 的 shareListResp 不同）。
+// 注意：/share/list 返回的 fs_id/size/isdir 是字符串（如 "482420416195240"），
+// 用 json.Number 兼容字符串与数字两种形态。
 type transferShareListResp struct {
 	Errno int `json:"errno"`
 	List  []struct {
-		FSID           int64  `json:"fs_id"`
-		ServerFilename string `json:"server_filename"`
-		Path           string `json:"path"`
-		Size           int64  `json:"size"`
-		IsDir          int    `json:"isdir"`
+		FSID           json.Number `json:"fs_id"`
+		ServerFilename string      `json:"server_filename"`
+		Path           string      `json:"path"`
+		Size           json.Number `json:"size"`
+		IsDir          json.Number `json:"isdir"`
 	} `json:"list"`
 }
 
@@ -181,10 +201,10 @@ func (s *Service) TransferSave(ctx context.Context, httpClient *http.Client, sur
 		return nil, fmt.Errorf("分享中没有文件")
 	}
 
-	// 4. 转存
+	// 4. 转存。fs_id 拼进 fsidlist（数字字符串数组，如 ["482420416195240"]）。
 	var fsIDs []string
 	for _, f := range listResp.List {
-		fsIDs = append(fsIDs, fmt.Sprintf("%d", f.FSID))
+		fsIDs = append(fsIDs, f.FSID.String())
 	}
 	fsidList := "[" + strings.Join(fsIDs, ",") + "]"
 
