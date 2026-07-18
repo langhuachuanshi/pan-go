@@ -82,15 +82,19 @@ func (s *Service) MakeDirIfNotExist(ctx context.Context, dirPath string) (*types
 	}
 	// 拆 parent / base，查 parent 下有没有 base
 	cleanPath := strings.TrimRight(dirPath, "/")
-	idx := strings.LastIndex(cleanPath, "/")
-	if idx <= 0 {
+	if !strings.HasPrefix(cleanPath, "/") {
 		return nil, invoker.NewAPIError(0, "dirPath 需要绝对路径")
 	}
+	idx := strings.LastIndex(cleanPath, "/")
+	base := cleanPath[idx+1:]
+	if base == "" {
+		return nil, invoker.NewAPIError(0, "dirPath 需要绝对路径")
+	}
+	// parent：/a/b → /a；/a → /（根目录）
 	parent := cleanPath[:idx]
 	if parent == "" {
 		parent = "/"
 	}
-	base := cleanPath[idx+1:]
 
 	// 查父目录，命中同名则视为已存在，返回 nil
 	exists, err := s.dirExistsInParent(ctx, parent, base)
