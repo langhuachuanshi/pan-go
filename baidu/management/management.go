@@ -64,6 +64,77 @@ func (s *Service) MakeDir(ctx context.Context, dirPath string) (*types.File, err
 	}, nil
 }
 
+// MakeDirIfNotExist 创建目录，但先查父目录确认目标不存在才创建。
+//
+// 为什么需要这个方法：百度的 /api/create?isdir=1 对**已存在**目录不报错，
+// 而是自动改名创建带时间后缀的新目录（如请求 /a/b，已存在则返回
+// path=/a/b_20260719_021510），errno=0。盲调 MakeDir 会产生一堆垃圾目录。
+// 本方法先 List 父目录确认目标不存在才 MakeDir，避免重复创建。
+//
+// 存在则返回 nil（不创建、不报错），由调用方判断 nil 决定后续。
+// 不存在则创建并返回新目录信息。
+//
+// 注意：只处理单层。递归创建多层目录由调用方逐层调用本方法
+// （如 workbench 的 ensureBaiduDir）。
+func (s *Service) MakeDirIfNotExist(ctx context.Context, dirPath string) (*types.File, error) {
+	if dirPath == "" {
+		return nil, invoker.NewAPIError(0, "dirPath is required")
+	}
+	// 拆 parent / base，查 parent 下有没有 base
+	cleanPath := strings.TrimRight(dirPath, "/")
+	idx := strings.LastIndex(cleanPath, "/")
+	if idx <= 0 {
+		return nil, invoker.NewAPIError(0, "dirPath 需要绝对路径")
+	}
+	parent := cleanPath[:idx]
+	if parent == "" {
+		parent = "/"
+	}
+	base := cleanPath[idx+1:]
+
+	// 查父目录，命中同名则视为已存在，返回 nil
+	exists, err := s.dirExistsInParent(ctx, parent, base)
+	if err != nil {
+		return nil, fmt.Errorf("查询 %s 是否存在失败: %w", dirPath, err)
+	}
+	if exists {
+		return nil, nil
+	}
+	return s.MakeDir(ctx, dirPath)
+}
+
+// dirExistsInParent 查 parent 目录下是否存在名为 name 的子项。
+// 用 List 父目录的方式（不依赖 fsid，按名字匹配）。
+func (s *Service) dirExistsInParent(ctx context.Context, parent, name string) (bool, error) {
+	// 通过 invoker 调 /api/list（management 包不便直接用 file.Service，会循环依赖）
+	data, _, err := s.inv.Get(ctx, "/api/list", map[string]string{
+		"dir":     parent,
+		"num":     "1000",
+		"order":   "name",
+	})
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		Errno int `json:"errno"`
+		List  []struct {
+			Path string `json:"path"`
+		} `json:"list"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, err
+	}
+	if resp.Errno != 0 && resp.Errno != -9 { // -9=目录不存在（空目录），忽略
+		return false, invoker.NewAPIError(resp.Errno, "list "+parent)
+	}
+	for _, it := range resp.List {
+		if strings.HasSuffix(it.Path, "/"+name) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // —— 移动/重命名（filemanager）/ 删除（filemanager）——
 
 // Copy 把 sourcePaths（一个或多个）复制到 destDir 目录下。
