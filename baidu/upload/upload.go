@@ -44,6 +44,12 @@ type UploadRequest struct {
 	FileName string      // 必填。上传后的文件名
 	Size     int64       // 必填。文件字节数
 	DestPath string      // 必填。目标目录绝对路径（如 /apps/），文件会落到 DestPath/FileName
+
+	// OnProgress 可选：上传进度回调。
+	// 每个分片（4MB）上传完成后调用一次，参数为 (已上传字节, 总字节)。
+	// 秒传（return_type=2）时只在最后调用一次 (total, total)。
+	// 不传（nil）则不回调，行为与旧版一致。
+	OnProgress func(uploaded, total int64)
 }
 
 // Upload 上传文件，返回新文件信息。
@@ -98,12 +104,15 @@ func (s *Service) Upload(ctx context.Context, req *UploadRequest) (*types.File, 
 		if uploadID == "" {
 			return nil, invoker.NewAPIError(pre.Errno, "precreate 返回 return_type=1 但无 uploadid")
 		}
-		uploadedMD5s, err := s.uploadParts(ctx, req.ReaderAt, req.Size, filePath, uploadID, pre.BlockList)
+		uploadedMD5s, err := s.uploadParts(ctx, req.ReaderAt, req.Size, filePath, uploadID, pre.BlockList, req.OnProgress)
 		if err != nil {
 			return nil, err
 		}
 		// 用实际上传返回的 md5 替换（一般和本地算的一致）。
 		blockMD5s = uploadedMD5s
+	} else if pre.ReturnType == 2 && req.OnProgress != nil {
+		// 秒传：无分片上传，直接回调 100%。
+		req.OnProgress(req.Size, req.Size)
 	}
 
 	// 4. create。
@@ -130,7 +139,8 @@ func (s *Service) Upload(ctx context.Context, req *UploadRequest) (*types.File, 
 }
 
 // uploadParts 上传指定分片序号，返回每片的 md5（全部分片，按序号对齐）。
-func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, path, uploadID string, partSeqs []int) ([]string, error) {
+// onProgress 非 nil 时，每个分片处理完成（含秒传分片）后回调一次。
+func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, path, uploadID string, partSeqs []int, onProgress func(uploaded, total int64)) ([]string, error) {
 	// 待上传序号集合。
 	need := make(map[int]bool, len(partSeqs))
 	for _, seq := range partSeqs {
@@ -142,6 +152,17 @@ func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, pa
 	}
 	md5s := make([]string, totalParts)
 	buf := make([]byte, partSize)
+	// 报进度辅助：第 seq 片（0-based）处理完时，已上传 = min((seq+1)*partSize, size)
+	report := func(seq int) {
+		if onProgress == nil {
+			return
+		}
+		done := int64(seq+1) * partSize
+		if done > size {
+			done = size
+		}
+		onProgress(done, size)
+	}
 	for seq := 0; seq < totalParts; seq++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -150,6 +171,7 @@ func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, pa
 			// 服务端已有该片（秒传分片），用本地算的 md5。
 			n, _ := r.ReadAt(buf, int64(seq)*partSize)
 			md5s[seq] = md5Hex(buf[:n])
+			report(seq)
 			continue
 		}
 		off := int64(seq) * partSize
@@ -179,6 +201,7 @@ func (s *Service) uploadParts(ctx context.Context, r io.ReaderAt, size int64, pa
 			return nil, invoker.NewAPIError(resp.Errno, fmt.Sprintf("分片 %d 上传失败: %s", seq, errnoMsg(resp.Errno)))
 		}
 		md5s[seq] = resp.MD5
+		report(seq)
 	}
 	return md5s, nil
 }
