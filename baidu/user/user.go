@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/langhuachuanshi/baidupan-go/baidu/invoker"
 )
@@ -128,14 +129,19 @@ var ErrLoginExpired = errors.New("user: 登录已失效（BDUSS 已过期）")
 
 // CheckLogin 探活：检查 BDUSS 是否仍有效。
 //
-// 策略（不依赖 HTML 解析，不受页面结构变化影响）：
+// 策略（精准识别登录页重定向，不受站内改版跳转影响）：
 //   - 克隆传入的 httpClient 并临时禁用重定向（CheckRedirect 返回 ErrUseLastResponse），
 //     不修改调用方原始 client（若其已自定义 CheckRedirect 也不会被破坏）
 //   - 请求 https://pan.baidu.com/disk/home：
 //   - 2xx：BDUSS 有效，返回 (true, nil)
-//   - 3xx：百度 302 跳到 passport.baidu.com 登录页，BDUSS 失效，
+//   - 3xx 且 Location 指向 passport.baidu.com（登录鉴权接口）：BDUSS 失效，
 //     返回 (false, fmt.Errorf("%w...", ErrLoginExpired, ...))
-//   - 其他：网络/服务异常，返回 (false, err)
+//   - 3xx 但 Location 是站内路径（如 /disk/main?from=homeFlow，新版网盘改版跳转）：
+//     BDUSS 仍有效，返回 (true, nil)
+//   - 其他状态码：网络/服务异常，返回 (false, err)
+//
+// 背景：百度新版网盘把 /disk/home 302 跳到 /disk/main（站内正常跳转），
+// 早期实现把所有 3xx 当失效，导致有效 BDUSS 被误判。
 //
 // httpClient 应携带待检测的 BDUSS cookie（通常传 Client.HTTPClient()）。
 func (s *Service) CheckLogin(ctx context.Context, httpClient *http.Client) (bool, error) {
@@ -157,13 +163,36 @@ func (s *Service) CheckLogin(ctx context.Context, httpClient *http.Client) (bool
 	}
 	defer resp.Body.Close()
 
-	switch {
-	case resp.StatusCode >= 300 && resp.StatusCode < 400:
-		// 百度 BDUSS 失效时 302 到 passport.baidu.com 登录页
-		return false, fmt.Errorf("%w（重定向到 %s）", ErrLoginExpired, resp.Header.Get("Location"))
-	case resp.StatusCode != http.StatusOK:
-		return false, fmt.Errorf("user: 探活失败 HTTP %d", resp.StatusCode)
-	default:
+	// 2xx：有效
+	if resp.StatusCode < 300 {
 		return true, nil
 	}
+
+	// 3xx：区分登录页重定向（失效）vs 站内跳转（有效）
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		loc := resp.Header.Get("Location")
+		if isLoginRedirect(loc) {
+			return false, fmt.Errorf("%w（重定向到 %s）", ErrLoginExpired, loc)
+		}
+		// 站内跳转（如 /disk/main）：BDUSS 有效
+		return true, nil
+	}
+
+	return false, fmt.Errorf("user: 探活失败 HTTP %d", resp.StatusCode)
+}
+
+// isLoginRedirect 判断重定向目标是否是百度登录鉴权页（BDUSS 失效的标志）。
+// 失效时百度跳到 passport.baidu.com 或 /v3/login/api/auth；站内改版跳转（如
+// /disk/main、/disk/home）不算失效。
+func isLoginRedirect(loc string) bool {
+	if loc == "" {
+		return false
+	}
+	// 绝对地址：passport.baidu.com
+	if strings.HasPrefix(loc, "https://") || strings.HasPrefix(loc, "http://") {
+		return strings.Contains(loc, "://passport.baidu.com") ||
+			strings.Contains(loc, "passport.baidu.com")
+	}
+	// 相对地址：登录鉴权接口路径
+	return strings.Contains(loc, "/login") || strings.Contains(loc, "/v3/login/api/auth")
 }
