@@ -10,6 +10,7 @@ package user
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,4 +120,50 @@ func (s *Service) User(ctx context.Context, httpClient *http.Client) (*UserInfo,
 		UK:        uk,
 		VipType:   vipType,
 	}, nil
+}
+
+// ErrLoginExpired 表示 BDUSS 已失效（被百度重定向到登录页）。
+// 调用方用 errors.Is(err, ErrLoginExpired) 判定，不要靠字符串匹配。
+var ErrLoginExpired = errors.New("user: 登录已失效（BDUSS 已过期）")
+
+// CheckLogin 探活：检查 BDUSS 是否仍有效。
+//
+// 策略（不依赖 HTML 解析，不受页面结构变化影响）：
+//   - 克隆传入的 httpClient 并临时禁用重定向（CheckRedirect 返回 ErrUseLastResponse），
+//     不修改调用方原始 client（若其已自定义 CheckRedirect 也不会被破坏）
+//   - 请求 https://pan.baidu.com/disk/home：
+//   - 2xx：BDUSS 有效，返回 (true, nil)
+//   - 3xx：百度 302 跳到 passport.baidu.com 登录页，BDUSS 失效，
+//     返回 (false, fmt.Errorf("%w...", ErrLoginExpired, ...))
+//   - 其他：网络/服务异常，返回 (false, err)
+//
+// httpClient 应携带待检测的 BDUSS cookie（通常传 Client.HTTPClient()）。
+func (s *Service) CheckLogin(ctx context.Context, httpClient *http.Client) (bool, error) {
+	// 浅拷贝 client struct，仅覆盖 CheckRedirect；Transport/Jar 等底层共享，安全。
+	noRedirect := *httpClient
+	noRedirect.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://pan.baidu.com/disk/home", nil)
+	if err != nil {
+		return false, fmt.Errorf("user: 创建探活请求失败: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("user: 探活请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch {
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		// 百度 BDUSS 失效时 302 到 passport.baidu.com 登录页
+		return false, fmt.Errorf("%w（重定向到 %s）", ErrLoginExpired, resp.Header.Get("Location"))
+	case resp.StatusCode != http.StatusOK:
+		return false, fmt.Errorf("user: 探活失败 HTTP %d", resp.StatusCode)
+	default:
+		return true, nil
+	}
 }
