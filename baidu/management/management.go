@@ -109,32 +109,48 @@ func (s *Service) MakeDirIfNotExist(ctx context.Context, dirPath string) (*types
 
 // dirExistsInParent 查 parent 目录下是否存在名为 name 的子项。
 // 用 List 父目录的方式（不依赖 fsid，按名字匹配）。
+//
+// 修复历史 Bug：原版只拉一页（num=1000），父目录超过 1000 项时分页截断，
+// 目标目录没在第一页 → 误判为"不存在" → MakeDir → 百度建带时间戳的垃圾目录。
+// 现在分页拉全量，并用精确路径匹配（不用 HasSuffix，避免子串误匹配）。
 func (s *Service) dirExistsInParent(ctx context.Context, parent, name string) (bool, error) {
-	// 通过 invoker 调 /api/list（management 包不便直接用 file.Service，会循环依赖）
-	data, _, err := s.inv.Get(ctx, "/api/list", map[string]string{
-		"dir":     parent,
-		"num":     "1000",
-		"order":   "name",
-	})
-	if err != nil {
-		return false, err
-	}
-	var resp struct {
-		Errno int `json:"errno"`
-		List  []struct {
-			Path string `json:"path"`
-		} `json:"list"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return false, err
-	}
-	if resp.Errno != 0 && resp.Errno != -9 { // -9=目录不存在（空目录），忽略
-		return false, invoker.NewAPIError(resp.Errno, "list "+parent)
-	}
-	for _, it := range resp.List {
-		if strings.HasSuffix(it.Path, "/"+name) {
-			return true, nil
+	target := strings.TrimRight(parent, "/") + "/" + name // 精确目标路径
+	page := 1
+	const pageSize = 1000
+	for {
+		// 通过 invoker 调 /api/list（management 包不便直接用 file.Service，会循环依赖）
+		data, _, err := s.inv.Get(ctx, "/api/list", map[string]string{
+			"dir":   parent,
+			"num":   strconv.Itoa(pageSize),
+			"order": "name",
+			"page":  strconv.Itoa(page),
+		})
+		if err != nil {
+			return false, err
 		}
+		var resp struct {
+			Errno int `json:"errno"`
+			List  []struct {
+				Path string `json:"path"`
+			} `json:"list"`
+		}
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return false, err
+		}
+		if resp.Errno != 0 && resp.Errno != -9 { // -9=目录不存在（空目录），忽略
+			return false, invoker.NewAPIError(resp.Errno, "list "+parent)
+		}
+		for _, it := range resp.List {
+			// 精确匹配路径（不用 HasSuffix，避免 /a/b 匹配到 /a/xb）
+			if it.Path == target {
+				return true, nil
+			}
+		}
+		// 不足一页说明拉完了
+		if len(resp.List) < pageSize {
+			break
+		}
+		page++
 	}
 	return false, nil
 }
