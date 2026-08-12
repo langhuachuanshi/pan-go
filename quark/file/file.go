@@ -32,7 +32,7 @@ type ListRequest struct {
 
 // listResponse 文件列表响应（夸克外层结构：{metadata,data:{list,total}}）。
 type listResponse struct {
-	Code int `json:"code"`
+	Code int    `json:"code"`
 	Msg  string `json:"message"`
 	Data struct {
 		List  []*types.File `json:"list"`
@@ -62,11 +62,13 @@ func (s *Service) List(ctx context.Context, req *ListRequest) ([]*types.File, er
 	var all []*types.File
 	for {
 		params := map[string]any{
-			"pdir_fid":      pdir,
-			"_page":         page,
-			"_size":         size,
-			"_fetch_total":  1,
-			"_sort":         req.Sort,
+			"pdir_fid":             pdir,
+			"_page":                page,
+			"_size":                size,
+			"_fetch_total":         1,
+			"_sort":                req.Sort,
+			"fetch_all_file":       1,
+			"fetch_risk_file_name": 1,
 		}
 		var resp listResponse
 		if err := invoker.GetAndDecode(ctx, s.inv, "/file/sort", params, &resp); err != nil {
@@ -106,11 +108,13 @@ func (s *Service) ListPage(ctx context.Context, req *ListRequest) ([]*types.File
 		size = 50
 	}
 	params := map[string]any{
-		"pdir_fid":     pdir,
-		"_page":        page,
-		"_size":        size,
-		"_fetch_total": 1,
-		"_sort":        req.Sort,
+		"pdir_fid":             pdir,
+		"_page":                page,
+		"_size":                size,
+		"_fetch_total":         1,
+		"_sort":                req.Sort,
+		"fetch_all_file":       1,
+		"fetch_risk_file_name": 1,
 	}
 	var resp listResponse
 	if err := invoker.GetAndDecode(ctx, s.inv, "/file/sort", params, &resp); err != nil {
