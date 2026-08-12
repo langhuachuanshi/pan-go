@@ -54,7 +54,7 @@ quark-go/
 ├── quark/          主包 Client（持 cookie，实现 invoker）
 ├── quark/auth/     cookie 管理 + 持久化
 ├── quark/file/     文件列表/详情/管理（建目录、重命名、移动、删除）
-├── quark/share/    创建分享 + 转存他人分享（核心场景）
+├── quark/share/    创建分享 + 转存 + 聚合发货
 ├── quark/upload/   上传（秒传 + 分片直传 OSS）
 ├── quark/download/ 下载
 ├── quark/types/    数据模型
@@ -73,6 +73,8 @@ quark-go/
 | 分享 | `Share().Create` | 创建公开/私密分享（含提取码） |
 | 转存 | `Share().Transfer` | 一键转存他人分享，返回新 fid 列表 |
 | 转存 | `Share().GetShareToken` / `ListShareFiles` / `SaveShare` / `WaitTask` | 转存子步骤（高级用法） |
+| 聚合发货 | `Share().DeliverByShareURLs` | 多个商品分享 → 一个限时带码新分享（每订单临时发货） |
+| 聚合发货 | `Share().ResolveFIDs` | 从自己的分享反查 FID（批量回填商品库/高级用法） |
 
 ## 夸克 vs 阿里云盘
 
