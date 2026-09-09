@@ -2,13 +2,15 @@ package lanzou
 
 // API 域名常量
 const (
-	baseURLPC     = "https://pc.woozooo.com"
-	baseURLUpload = "https://up.woozooo.com"
+	baseURLPC      = "https://pc.woozooo.com"
+	baseURLUpload  = "https://up.woozooo.com"
+	baseURLAccount = "https://accounts.woozooo.com" // 账号系统（登录已从 pc.woozooo.com 迁出）
 )
 
 // API 端点路径（新版统一用 /doupload.php）
 const (
-	pathLogin        = "/account/loginajax"
+	pathLogin        = "/account/loginajax" // 已废弃：蓝奏账号系统迁移，登录改走 accounts.woozooo.com
+	pathAccountLogin = "/accounts.php"      // 新账号系统登录入口（POST task=uselogin）
 	pathLogout       = "/account/logout"
 	pathUpload       = "/html5up.php" // 上传入口（fileup.php 已弃用，返回 HTML，见 issue #110）
 	pathTaskAPI      = "/doupload.php" // 文件/文件夹/回收站操作统一入口
