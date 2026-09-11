@@ -2,10 +2,7 @@
 
 ## 项目概览
 
-pan-go：四个网盘的 Go SDK 统一仓库（monorepo）——阿里云盘（alipan）、
-百度网盘（baidu）、蓝奏云（lanzou）、夸克网盘（quark）。各网盘目录级
-完全独立、互不依赖；鉴权模型各不相同（token+签名 / BDUSS cookie /
-cookie+反爬挑战 / cookie+扫码登录）。
+pan-go：四个网盘的 Go SDK 统一仓库（monorepo）——阿里云盘（alipan）、百度网盘（baidu）、蓝奏云（lanzou）、夸克网盘（quark）。各网盘目录级完全独立、互不依赖；鉴权模型各不相同（token+签名 / BDUSS cookie /cookie+反爬挑战 / cookie+扫码登录）。
 
 ## 目录结构
 
@@ -103,7 +100,7 @@ go build ./... && go vet ./... && go test ./...   # 全仓库（含所有 exampl
 - **主动提交**：每完成一个计划项（或一个可独立验证的任务）就主动 commit，不等用户提醒；阶段性收尾主动 push（用户明确说"先不推"的除外）。
 - **提交信息**：`<类型>(<范围>): 中文描述`，类型取 feat / fix / docs / refactor / test / chore；一次提交只说一件事。
 - **提交质量线**：提交前 build / vet / test 全过，不提交半成品；收尾时工作区不留未提交的改动。
-- **发版即同步文档**：打 tag 时，依据自上次 tag 以来的全部提交，一次性完成——更新日志条目（中文）、API 文档、README、docs/ 下 wiki 类文档的同步。文档同步是发版的固定动作，不需要用户额外交代。
+- **tag / 发版必须等明确指令**：只有用户说出"发布新版本""打 tag"之类的明确指示才打 tag，**绝不主动打 tag**。打 tag 时依据自上次 tag 以来的全部提交，一次性完成——更新日志条目（中文）、API 文档、README、docs/ 下 wiki 类文档的同步。文档同步是发版的固定动作，不需要用户额外交代。
 
 ## 行为准则
 
