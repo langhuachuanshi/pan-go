@@ -71,9 +71,9 @@ func TestProgressReaderNilCallback(t *testing.T) {
 	}
 }
 
-// TestUploadFileWithProgressTriggersCallback 用 httptest mock 蓝奏接口，
-// 验证上传时 onProgress 被触发且最终到 100%。
-func TestUploadFileWithProgressTriggersCallback(t *testing.T) {
+// TestPostMultipartStream 用 httptest mock 上传接口，验证流式上传时
+// onProgress 被触发、服务端收到全部字节。
+func TestPostMultipartStream(t *testing.T) {
 	// mock html5up.php：读取全部 body 后返回成功 JSON
 	var receivedBytes int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,8 +94,6 @@ func TestUploadFileWithProgressTriggersCallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// 临时替换 baseURLPC + pathUpload（通过直接测 postMultipartStream）
-	// 这里直接测 postMultipartStream，绕过登录校验
 	c := &Client{httpClient: server.Client()}
 	// 覆盖 cookies（空也行，mock 不校验）
 	c.cookies = []*http.Cookie{}
@@ -112,7 +110,7 @@ func TestUploadFileWithProgressTriggersCallback(t *testing.T) {
 	fileContentStr := "stream upload test data " + strings.Repeat("x", 1000)
 	total := int64(len(fileContentStr))
 	fileContent := strings.NewReader(fileContentStr)
-	body, _, err := c.postMultipartStream(
+	body, _, err := c.PostMultipartStream(
 		server.URL,
 		map[string]string{"task": "1"},
 		"upload_file",
@@ -123,7 +121,7 @@ func TestUploadFileWithProgressTriggersCallback(t *testing.T) {
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("postMultipartStream 失败: %v", err)
+		t.Fatalf("PostMultipartStream 失败: %v", err)
 	}
 	if len(body) == 0 {
 		t.Fatal("响应 body 为空")

@@ -1,41 +1,28 @@
 package lanzou
 
-// API 域名常量
+// 主包持有域名与端点：子包通过 Invoker 的 TaskURL / UploadURL / AjaxmURL 获取，
+// 不直接感知域名细节。账号系统域名在 account 子包内定义（登录已从 pc.woozooo.com 迁出）。
+
 const (
-	baseURLPC      = "https://pc.woozooo.com"
-	baseURLUpload  = "https://up.woozooo.com"
-	baseURLAccount = "https://accounts.woozooo.com" // 账号系统（登录已从 pc.woozooo.com 迁出）
+	baseURLPC = "https://pc.woozooo.com" // 网页端主域
+)
+
+// 账号系统相关（登录已从 pc.woozooo.com 迁出）
+const (
+	baseURLAccount   = "https://accounts.woozooo.com"
+	pathAccountLogin = "/accounts.php"   // 新账号系统登录入口（POST task=uselogin）
+	pathLogout       = "/account/logout"
 )
 
 // API 端点路径（新版统一用 /doupload.php）
 const (
-	pathLogin        = "/account/loginajax" // 已废弃：蓝奏账号系统迁移，登录改走 accounts.woozooo.com
-	pathAccountLogin = "/accounts.php"      // 新账号系统登录入口（POST task=uselogin）
-	pathLogout       = "/account/logout"
-	pathUpload       = "/html5up.php" // 上传入口（fileup.php 已弃用，返回 HTML，见 issue #110）
-	pathTaskAPI      = "/doupload.php" // 文件/文件夹/回收站操作统一入口
-	pathAjaxm        = "/ajaxm.php"    // 直链解析
+	pathTaskAPI = "/doupload.php" // 文件/文件夹/回收站操作统一入口
+	pathUpload  = "/html5up.php"  // 上传入口（fileup.php 已弃用，返回 HTML，见 issue #110）
+	pathAjaxm   = "/ajaxm.php"    // 直链解析
 )
 
 // 默认 User-Agent
 const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-
-// 蓝奏云分享链接域名模式
-var lanzouDomains = []string{
-	"lanzoul.com",
-	"lanzoui.com",
-	"lanzout.com",
-	"lanzouw.com",
-	"lanzoux.com",
-	"lanzouy.com",
-	"lanzouf.com",
-	"lanzouh.com",
-	"lanzouj.com",
-	"lanzouk.com",
-	"lanzoup.com",
-	"lanzouq.com",
-	"lanzous.com",
-}
 
 // 默认配置
 const (

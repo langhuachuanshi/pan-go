@@ -1,15 +1,16 @@
 package lanzou
 
-import "errors"
+import "github.com/langhuachuanshi/pan-go/lanzou/invoker"
 
+// 哨兵错误定义在 invoker 包（子包也能用），此处别名透出，保持 lanzou.ErrXxx 的调用习惯。
 var (
-	ErrNotLoggedIn    = errors.New("lanzou: not logged in")
-	ErrFileExpired    = errors.New("lanzou: file expired or deleted")
-	ErrPasswordWrong  = errors.New("lanzou: wrong password")
-	ErrFileSizeLimit  = errors.New("lanzou: file size exceeds limit")
-	ErrInvalidURL     = errors.New("lanzou: invalid lanzou url")
-	ErrExtractFailed  = errors.New("lanzou: failed to extract data from page")
-	ErrUploadFailed   = errors.New("lanzou: upload failed")
-	ErrDownloadFailed = errors.New("lanzou: download failed")
-	ErrAPIError       = errors.New("lanzou: api error")
+	ErrNotLoggedIn    = invoker.ErrNotLoggedIn
+	ErrFileExpired    = invoker.ErrFileExpired
+	ErrPasswordWrong  = invoker.ErrPasswordWrong
+	ErrFileSizeLimit  = invoker.ErrFileSizeLimit
+	ErrInvalidURL     = invoker.ErrInvalidURL
+	ErrExtractFailed  = invoker.ErrExtractFailed
+	ErrUploadFailed   = invoker.ErrUploadFailed
+	ErrDownloadFailed = invoker.ErrDownloadFailed
+	ErrAPIError       = invoker.ErrAPIError
 )

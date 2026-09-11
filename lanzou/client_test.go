@@ -3,6 +3,7 @@ package lanzou
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -46,7 +47,7 @@ func TestFollowLoginRedirect(t *testing.T) {
 	if err := c.followLoginRedirect(srv.URL + "/sso"); err != nil {
 		t.Fatalf("followLoginRedirect 出错: %v", err)
 	}
-	if c.getCookieValue("ylogin") != "13800000000" {
-		t.Errorf("未吸收中转链 Set-Cookie，cookies=%v", c.cookies)
+	if !strings.Contains(c.GetCookieString(), "ylogin=13800000000") {
+		t.Errorf("未吸收中转链 Set-Cookie，cookie=%s", c.GetCookieString())
 	}
 }

@@ -1,40 +1,29 @@
-// Package lanzou 提供蓝奏云网盘的 Go 语言 SDK。
+// Package lanzou 提供蓝奏云网盘的 Go 语言 SDK（基于逆向协议，零第三方依赖）。
 //
-// 本库基于 zaxtyson/LanZouCloud-API (Python) 移植，实现了蓝奏云网盘的完整功能：
-//   - 登录/登出
-//   - 文件列表、上传、下载、删除、移动
-//   - 文件夹创建、删除、移动
-//   - 回收站管理
-//   - 分享链接直链解析
-//   - 密码设置
+// 架构同 pan-go 其他模块：主包 Client 实现 invoker.Invoker，业务能力经
+// Account / Files / Folders / Upload / Download / Recycle / Resolve 访问器提供。
+// 会话生命周期（Login/Logout/cookie 注入与导出）在主包 Client 上。
 //
 // 使用示例：
 //
-//	client := lanzou.NewClient(
-//	    lanzou.WithTimeout(30),
-//	)
+//	c := lanzou.NewClient(lanzou.WithTimeout(30))
+//	defer c.Logout()
 //
-//	// 登录
-//	err := client.Login("username", "password")
-//	if err != nil {
+//	// 登录（或 c.SetCookiesFromMap 用已持久化的 cookie 免登）
+//	if err := c.Login("user", "pass"); err != nil {
 //	    log.Fatal(err)
 //	}
-//	defer client.Logout()
 //
-//	// 获取文件列表
-	//	files, err := client.GetFileList(-1)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
+//	// 文件列表
+//	files, err := c.Files().List(-1)
 //	for _, f := range files.Text {
 //	    fmt.Printf("[%s] %s (%s)\n", f.ID, f.NameAll, f.Size)
 //	}
 //
-//	// 解析直链（无需登录）
-//	durl, err := client.GetDurlByURL("https://pan.lanzoul.com/xxxxx", "")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	fmt.Println("直链:", durl)
+//	// 上传 / 下载
+//	c.Upload().Stream("local.txt", -1, nil)
+//	c.Download().File("local.bin", "https://pan.lanzoul.com/xxxxx")
 //
+//	// 解析直链（无需登录）
+//	c.Resolve().GetDurlByURL("https://pan.lanzoul.com/xxxxx", "")
 package lanzou

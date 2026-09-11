@@ -1,0 +1,214 @@
+// Package upload 上传：本地文件 / 流式进度上传 / 网盘文件转存。
+package upload
+
+import (
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/langhuachuanshi/pan-go/lanzou/invoker"
+)
+
+// UploadResult 上传结果
+type UploadResult struct {
+	Zt       int    `json:"zt"`
+	Info     string `json:"info"`
+	FileID   string `json:"file_id"`
+	FileName string `json:"name_all"`
+}
+
+// uploadResp html5up.php 上传接口响应
+type uploadResp struct {
+	Zt   int `json:"zt"`
+	Info string `json:"info"`
+	Text []struct {
+		ID      string `json:"id"`
+		NameAll string `json:"name_all"`
+	} `json:"text"`
+}
+
+// Service 上传服务。
+type Service struct{ inv invoker.Invoker }
+
+// New 创建 upload Service。
+func New(inv invoker.Invoker) *Service { return &Service{inv: inv} }
+
+// File 上传本地文件（一次性载入内存，兼容保留；进度场景用 Stream）。
+// filePath: 本地文件路径, fid: 目标文件夹ID（根目录传 0）, desc: 文件描述（可选）。
+func (s *Service) File(filePath string, fid int, desc ...string) (*UploadResult, error) {
+	if !s.inv.LoggedIn() {
+		return nil, invoker.ErrNotLoggedIn
+	}
+
+	// 检查文件大小
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat file failed: %w", err)
+	}
+	if info.Size() > int64(s.inv.MaxSize()) {
+		return nil, fmt.Errorf("%w: file size %d exceeds limit %d", invoker.ErrFileSizeLimit, info.Size(), s.inv.MaxSize())
+	}
+
+	// 打开文件
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open file failed: %w", err)
+	}
+	defer f.Close()
+
+	// 上传延迟
+	if minMs, maxMs := s.inv.UploadDelay(); maxMs > minMs {
+		delay := minMs + rand.Intn(maxMs-minMs)
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+	}
+
+	return s.postMultipartFile(s.inv.UploadURL(), filePath, f, fid, desc...)
+}
+
+// Stream 流式上传本地文件，支持上传进度回调。
+//
+// 文件内容边读边发（io.Pipe + multipart 直写 request body），不一次性载入内存。
+// onProgress 在网络传输时触发，反映真实上传进度（可为 nil）。
+func (s *Service) Stream(filePath string, fid int, onProgress func(uploaded, total int64), desc ...string) (*UploadResult, error) {
+	if !s.inv.LoggedIn() {
+		return nil, invoker.ErrNotLoggedIn
+	}
+
+	// 检查文件大小
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat file failed: %w", err)
+	}
+	if info.Size() > int64(s.inv.MaxSize()) {
+		return nil, fmt.Errorf("%w: file size %d exceeds limit %d", invoker.ErrFileSizeLimit, info.Size(), s.inv.MaxSize())
+	}
+
+	// 打开文件
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open file failed: %w", err)
+	}
+	defer f.Close()
+
+	body, _, err := s.inv.PostMultipartStream(
+		s.inv.UploadURL(),
+		s.buildFields(filePath, fid, desc),
+		"upload_file",
+		filepath.Base(filePath),
+		f,
+		info.Size(),
+		onProgress,
+		map[string]string{
+			"Referer": "https://pc.woozooo.com/mydisk.php",
+			"Origin":  "https://pc.woozooo.com",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("upload request failed: %w", err)
+	}
+
+	return parseUploadResult(body)
+}
+
+// ByURL 上传网盘已有文件（非本地文件）。
+// fileURL: 文件URL, fid: 目标文件夹ID。
+func (s *Service) ByURL(fileURL string, fid int, desc ...string) (*UploadResult, error) {
+	if !s.inv.LoggedIn() {
+		return nil, invoker.ErrNotLoggedIn
+	}
+
+	descStr := ""
+	if len(desc) > 0 {
+		descStr = desc[0]
+	}
+
+	data := map[string]string{
+		"task":      "42",
+		"folder_id": fmt.Sprintf("%d", fid),
+		"url":       fileURL,
+		"name":      filepath.Base(fileURL),
+		"des":       descStr,
+	}
+	body, _, err := s.inv.Post(s.inv.TaskURL(), data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("upload by url failed: %w", err)
+	}
+
+	var resp UploadResult
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("%w: invalid upload response", invoker.ErrAPIError)
+	}
+	if resp.Zt == 0 {
+		return nil, fmt.Errorf("%w: %s", invoker.ErrUploadFailed, resp.Info)
+	}
+	return &resp, nil
+}
+
+// buildFields 构造上传字段（与蓝奏云 web 端 html5up.php 一致）。
+// 注意：folder_id 字段名为 folder_id_bb_n，vie/ve 为固定值，无需 t_a/t_b/t_c。
+func (s *Service) buildFields(filePath string, fid int, desc []string) map[string]string {
+	fields := map[string]string{
+		"task":           "1",
+		"vie":            "2",
+		"ve":             "2",
+		"id":             "WU_FILE_0",
+		"folder_id_bb_n": fmt.Sprintf("%d", fid),
+		"name":           filepath.Base(filePath),
+	}
+	if len(desc) > 0 && desc[0] != "" {
+		fields["des"] = desc[0]
+	}
+	return fields
+}
+
+// postMultipartFile 走普通 multipart（一次性载入内存）完成上传。
+func (s *Service) postMultipartFile(uploadURL, filePath string, f *os.File, fid int, desc ...string) (*UploadResult, error) {
+	body, _, err := s.inv.PostMultipart(
+		uploadURL,
+		s.buildFields(filePath, fid, desc),
+		"upload_file",
+		filepath.Base(filePath),
+		f,
+		map[string]string{
+			"Referer": "https://pc.woozooo.com/mydisk.php",
+			"Origin":  "https://pc.woozooo.com",
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("upload request failed: %w", err)
+	}
+	return parseUploadResult(body)
+}
+
+// parseUploadResult 解析上传响应，各上传入口共用。
+func parseUploadResult(body []byte) (*UploadResult, error) {
+	var resp uploadResp
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("%w: invalid upload response (not JSON, first 200 bytes: %q)", invoker.ErrAPIError, truncate(string(body), 200))
+	}
+	if resp.Zt != 1 {
+		return nil, fmt.Errorf("%w: zt=%d info=%s", invoker.ErrUploadFailed, resp.Zt, resp.Info)
+	}
+
+	// text 是数组，第一个元素包含 file_id 和 name_all
+	result := &UploadResult{
+		Zt:   resp.Zt,
+		Info: resp.Info,
+	}
+	if len(resp.Text) > 0 {
+		result.FileID = resp.Text[0].ID
+		result.FileName = resp.Text[0].NameAll
+	}
+	return result, nil
+}
+
+// truncate 截断字符串到指定长度，用于错误信息
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
