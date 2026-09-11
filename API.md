@@ -31,6 +31,7 @@ client.GetChallengeConfig()     // 获取当前挑战参数
 // cookie 注入
 client.SetCookies(cookies)      // []*http.Cookie
 client.SetCookiesFromMap(map[string]string{...})
+client.GetCookieString()        // 导出当前 cookie（"k1=v1; k2=v2"），可持久化会话
 ```
 
 ---

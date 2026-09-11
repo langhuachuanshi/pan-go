@@ -2,6 +2,13 @@
 
 All notable changes to lanzou-go will be documented in this file.
 
+## [0.3.2] - 2026-09-12
+
+### 新增
+
+- `GetCookieString()`：导出当前会话 cookie（`"k1=v1; k2=v2"` 单行格式），账号密码 `Login`
+  或注入浏览器 Cookie 后可持久化会话，下次 `SetCookiesFromMap` 免登恢复
+
 ## [0.3.1] - 2026-09-10
 
 ### 修复
