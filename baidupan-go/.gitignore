@@ -1,0 +1,42 @@
+# 敏感凭证（密钥/token），绝不提交
+.env
+.env.*
+*.secret
+credentials.json
+
+# token 持久化
+token.json
+
+# 本地测试用的临时授权码
+auth_code.txt
+
+# cookie 落盘（示例会读取 baidu_cookie.txt，含登录态，绝不提交）
+*_cookie.txt
+cookie.json
+cookie.txt
+
+# 日志与临时目录
+*.log
+tmp/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 调研用的第三方源码（BaiduPCS-Go/alist 等，仅供参考，不纳入本项目）
+.research/
