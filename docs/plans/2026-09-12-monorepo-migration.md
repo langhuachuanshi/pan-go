@@ -89,7 +89,7 @@ pan-go/
 6. [ ] 补 alipan 模块审查报告（沿用 P0-P2 模板），修复计划继承各模块
    未完成项并汇入 TODO.md。
 7. [ ] 远端：GitHub 创建 `langhuachuanshi/pan-go`（可见性见待确认②），
-   push main，打首个 tag `v0.1.0`。
+   push main，打首个 tag `pan-go/v26.37.1`（日期版本号规则见根 AGENTS）。
 8. [ ] 旧仓库收尾：四个旧仓库 README 顶部加"已迁移至 pan-go"说明后归档
    （archive；旧地址仍可访问，lanzou 旧 tag 历史在那里可查）。
 
@@ -107,5 +107,5 @@ pan-go/
 - [ ] build / vet / test 全绿（含全部 example）
 - [ ] 全仓 grep 无旧 module 路径残留
 - [ ] 根四件套 + docs/{plans,reviews,lanzou,quark} 到位
-- [ ] 远端 push 成功且 tag v0.1.0 存在
+- [ ] 远端 push 成功且 tag `pan-go/v26.37.1` 存在
 - [ ] 四个旧仓库已加迁移说明并归档
