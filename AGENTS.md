@@ -1,5 +1,5 @@
 <!--
-由 vibe-coding/AGENTS.template.md v1.0 实例化（2026-09-12）。
+由 vibe-coding 仓库公共 AGENTS 模板 v1.0 实例化（2026-09-12）。
 公共规范（文档与计划 / 更新日志 / Tag / 行为准则）以模板为源头，本文件是 pan-go 实例。
 -->
 

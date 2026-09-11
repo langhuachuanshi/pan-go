@@ -78,12 +78,12 @@ pan-go/
    - `github.com/langhuachuanshi/lanzou-go → .../pan-go/lanzou`
    - `github.com/langhuachuanshi/quark-go/quark → .../pan-go/quark`
    - 覆盖范围：所有示例源码、包注释示例、README/docs 中的代码块
-4. [ ] 根文件落位：`AGENTS.md`（☑ 已由 `vibe-coding/AGENTS.template.md` v1.0
-   实例化并提交，迁移完成后原样生效）；`README.md`（总览：四模块导航 +
+4. [ ] 根文件落位：`AGENTS.md`（☑ 已按 vibe-coding 公共模板 v1.0 实例化并提交，
+   迁移完成后原样生效）；`README.md`（总览：四模块导航 +
    安装示例）；`TODO.md`；`.gitignore`（四份并集）；三份审查报告收编至
    `docs/reviews/`（baidupan / lanzou / quark，alipan 待补）。
-   各模块目录另放模块级 `AGENTS.md`（源自 `vibe-coding/AGENTS.module.template.md`，
-   内容取自四份旧模块 AGENTS 拆分归位）。
+   各模块目录另放模块级 `AGENTS.md`（内容取自四份旧模块 AGENTS 拆分归位，
+   只写"换个模块就会变"的内容）。
 5. [ ] 验证：`go build ./... && go vet ./... && go test ./...` 全过；
    `grep` 确认无旧 import 残留；四个 example 子目录均可编译。
 6. [ ] 补 alipan 模块审查报告（沿用 P0-P2 模板），修复计划继承各模块
