@@ -32,3 +32,9 @@ desktop.ini
 *.quark.json
 cookie.json
 cookie.txt
+*_cookie.txt
+
+# 本地环境与日志（可能含凭据）
+.env
+.env.*
+*.log

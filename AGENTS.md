@@ -2,51 +2,46 @@
 
 ## 项目概览
 
-夸克网盘的 Go SDK。基于 cookie 鉴权（无 token、无签名），支持扫码登录
-（`quark/qrcode`）、文件管理、上传（秒传+分片直传 OSS）、下载、创建分享、
-转存他人分享。模块名 `github.com/langhuachuanshi/quark-go`。
+夸克网盘 Go SDK。cookie 鉴权（无 token、无签名），支持扫码登录
+（`quark/qrcode`）、文件管理、上传（秒传+分片 OSS）、下载、分享与转存。
 接口真相的参考索引在 `INTERFACE.md`，查接口/补功能/查 bug 先看那里。
-
-## 目录结构
-
-```
-quark-go/
-├── quark/            主包 Client（实现 invoker.Invoker）
-├── quark/auth/       cookie 管理 + 持久化（~/.quark/cookie.json）
-├── quark/file/       文件列表/详情/管理
-├── quark/share/      创建分享 + 转存 + 聚合发货
-├── quark/upload/     上传（秒传 + 分片直传 OSS）
-├── quark/download/   下载
-├── quark/qrcode/     扫码登录（换发登录 cookie）
-├── quark/types/      数据模型
-├── quark/invoker/    共享调用接口与 APIError
-└── example/          实测脚本（test_*），多数需要真实 cookie
-```
 
 ## 常用命令
 
 ```bash
-go build ./...
-go vet ./...
-go run ./example/quickstart          # 联调示例，需要 ~/.quark/cookie.json 或环境提供 cookie
-go run ./example/test_qrlogin        # 扫码登录实测，无需已有 cookie
+go build ./... && go vet ./... && go test ./...
+go run ./example/test_qrlogin   # 扫码登录实测，无需已有 cookie
+go run ./example/quickstart     # 其余实测脚本需 ~/.quark/cookie.json
 ```
 
-## 架构与约定
+## 约定
 
-- **invoker 接口模式**（同 alipan-go）：业务子包依赖 `invoker.Invoker` 接口，
-  主包 `Client` 实现，避免循环依赖。新增子包照此办理。
-- **接口约定**：base `https://drive-pc.quark.cn/1/clouddrive`，公共 query
-  `pr=ucpro&fr=pc`（`uqm` 会被当游客返回 31001）；响应 `{status, code, message, ...}`，
-  `code==0 && status==200` 才算成功。详见 `INTERFACE.md`。
-- **错误**：统一 `invoker.APIError`；登录态失效用 `invoker.IsAuthError`
-  （31001 未登录 / 31003 cookie 失效）判断，引导重新扫码登录。
-- **cookie 校验**：`__puus` 或 `__pus` 任一存在即有效（扫码换发的 cookie 只有
-  `__pus`，drive 接口实测认）；新 cookie 的 `__puus` 回写要合并进本地 cookie。
-- **实测文化**：接口行为以真机实测为准，结论写进提交信息和 `INTERFACE.md`；
+- invoker 接口模式（同 alipan-go）：业务子包依赖 `invoker.Invoker`，
+  主包 Client 实现，避免循环依赖。
+- 接口约定：base `drive-pc.quark.cn/1/clouddrive`，公共 query
+  `pr=ucpro&fr=pc`（`uqm` 返 31001）；`code==0 && status==200` 才算成功。
+- 错误统一 `invoker.APIError`；登录态失效用 `invoker.IsAuthError`
+  （31001/31003）判断，引导重新扫码登录。
+- cookie 校验：`__puus` 或 `__pus` 任一存在即有效（扫码换发只有 `__pus`，
+  drive 接口实测认）；响应刷新的 `__puus` 要合并回本地 cookie。
+- 实测文化：接口行为以真机实测为准，结论写进提交信息与 `INTERFACE.md`；
   未实测的推断要标注"未验证"。
-- **文档同步**：对外行为变更须同步 `README.md`（使用）与 `INTERFACE.md`
-  （接口索引/已知差异）。
+- 凭据只走环境变量、`~/.quark/cookie.json` 或扫码，绝不写进代码与文档。
+
+## 文档与计划
+
+- `docs/code-review-YYYY-MM-DD.md`：代码审查报告——范围/方法、发现按 P0-P2
+  分级（位置+依据+处置）、修复计划用 checkbox、每项带验收标准；已修的标 ☑。
+- `docs/plans/<主题>.md`：开发/重构计划。
+- **计划先行**：多步开发或修复，先把计划落到 `docs/` 再动手，执行中更新
+  勾选与结果——计划不丢失、可追溯。
+
+## Tag 规范
+
+- `vX.Y.Z`（semver）：不兼容变更升主位，新功能升次位，修复升第三位。
+- 发 tag 前置：build / vet / test 全过，对外行为变更已在 README/INTERFACE
+  同步（当前仓库尚无 tag，首次发版起按此执行；引入 CHANGELOG.md 后条目
+  与 tag 一一对应）。
 
 ## 行为准则
 以下准则偏向谨慎而非速度，目的是减少常见编码失误。
