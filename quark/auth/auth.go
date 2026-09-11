@@ -1,8 +1,9 @@
 // Package auth 实现夸克网盘的 cookie 管理。
 //
-// 夸克网盘基于 cookie 鉴权，无 token、无签名、无扫码登录 API。
-// 用户需从浏览器（pan.quark.cn 登录后 F12）复制完整 cookie 字符串。
-// 最关键的 cookie 字段是 __puus（登录态凭证）。
+// 夸克网盘基于 cookie 鉴权，无 token、无签名。
+// cookie 来源：扫码登录（quark/qrcode 换发）或从浏览器（pan.quark.cn 登录后
+// F12）复制完整 cookie 字符串。
+// 最关键的 cookie 字段是 __puus/__pus（登录态凭证，扫码换发的只有 __pus）。
 package auth
 
 import (

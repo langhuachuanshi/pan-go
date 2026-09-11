@@ -1,8 +1,8 @@
 # quark-go
 
-夸克网盘的 Go SDK。基于 cookie 鉴权（无 token、无签名、无扫码登录 API）。
+夸克网盘的 Go SDK。基于 cookie 鉴权（无 token、无签名），cookie 可扫码登录获取，也可从浏览器复制。
 
-> 已完成全部核心功能（均实测通过）：文件列表/详情/管理、上传（秒传+分片）、下载、创建分享、转存他人分享（核心场景）。
+> 已完成全部核心功能（均实测通过）：扫码登录取 cookie、文件列表/详情/管理、上传（秒传+分片）、下载、创建分享、转存他人分享（核心场景）。
 
 ## 安装
 
@@ -12,7 +12,17 @@ go get github.com/langhuachuanshi/quark-go
 
 ## 获取 Cookie
 
-夸克只能用 cookie 鉴权（无官方扫码 API）：
+获取方式二选一：
+
+**方式一：扫码登录**（免手动抓包，完整示例见 `example/test_qrlogin`）：
+
+```go
+login, _ := qrcode.Create(ctx)
+fmt.Println(login.QRURL)                    // 二维码内容短链，贴到任意二维码生成器出图
+cookie, _ := login.Wait(ctx, 2*time.Minute) // 夸克App扫码确认后返回完整 cookie
+```
+
+**方式二：浏览器复制**：
 
 1. 浏览器登录 https://pan.quark.cn
 2. 按 F12 → Network 标签
@@ -40,7 +50,7 @@ func main() {
     c, err := quark.New(ctx)
     if err != nil { log.Fatal(err) }
 
-    files, _ := c.Files().List(ctx, &file.ListRequest{PDirFid: "0"})
+    files, _ := c.Files().List(ctx, &file.ListRequest{PDirFID: "0"})
     for _, f := range files {
         fmt.Println(f.FileName, f.Size)
     }
@@ -57,6 +67,7 @@ quark-go/
 ├── quark/share/    创建分享 + 转存 + 聚合发货
 ├── quark/upload/   上传（秒传 + 分片直传 OSS）
 ├── quark/download/ 下载
+├── quark/qrcode/   扫码登录（换发登录 cookie）
 ├── quark/types/    数据模型
 └── quark/invoker/  共享调用接口
 ```
@@ -70,6 +81,7 @@ quark-go/
 | 文件 | `Files().MakeDir` / `Rename` / `Move` / `Delete` | 文件管理（移动/删除天然批量） |
 | 上传 | `Upload().Upload` | 秒传 + 分片直传 OSS，流式（`io.ReaderAt`），支持进度回调 |
 | 下载 | `Download().Download` / `GetDownloadURL` | 流式下载（`io.Writer`）/ 拿临时直链 |
+| 扫码登录 | `qrcode.Create` / `Login.Wait` | 生成二维码内容短链并轮询换发登录 cookie |
 | 分享 | `Share().Create` | 创建公开/私密分享（含提取码） |
 | 转存 | `Share().Transfer` | 一键转存他人分享，返回新 fid 列表 |
 | 转存 | `Share().GetShareToken` / `ListShareFiles` / `SaveShare` / `WaitTask` | 转存子步骤（高级用法） |

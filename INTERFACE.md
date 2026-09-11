@@ -21,7 +21,7 @@
 - **公共 query**:`pr=ucpro`、`fr=pc`(**注意不是 `uqm`**,会被当游客返回 31001)
 - **公共 header**:`Cookie`、伪装 Electron 客户端的 `User-Agent`、`Referer: https://pan.quark.cn`、`Origin: https://pan.quark.cn`
 - **错误约定**:响应 `{status, code, message, data, metadata}`,`status >= 400` 或 `code != 0` 即失败
-  - 常见码:`31003` cookie 失效 · `31005` 文件不存在 · `41013` 转存限频
+  - 常见码:`31001` 未登录 · `31003` cookie 失效 · `31005` 文件不存在 · `41013` 转存限频(`invoker.IsAuthError` 判 31001/31003)
 - **`__puus` 回写**:响应里若带 `Set-Cookie: __puus=...`,要合并回本地 cookie(它会刷新,见下方"潜在问题 #2")
 
 ---
@@ -33,7 +33,7 @@
 | 接口 | AList | quark-auto-save | 本项目 | 备注 |
 |---|:---:|:---:|:---:|---|
 | `GET /file/sort` 列目录 | ✅ | ✅ | ✅ | 已对齐:带 fetch_all_file / fetch_risk_file_name |
-| `POST /file` 建目录 | ✅ | ✅ | ⚠️ | 我们靠 List 匹配取 fid;quark-auto-save 用 `dir_path` 直接返回 fid |
+| `POST /file` 建目录 | ✅ | ✅ | ⚠️ | 我们靠 List 匹配取 fid(每秒重试,最多 5 次);quark-auto-save 用 `dir_path` 直接返回 fid |
 | `POST /file/rename` | ✅ | ✅ | ✅ | 一致 |
 | `POST /file/move` | ✅ | ✅ | ✅ | 一致(`action_type=1`) |
 | `POST /file/delete` | ✅ | ✅ | ✅ | AList/我们用 `action_type=1`,quark-auto-save 用 `2`,均可用 |
@@ -48,7 +48,8 @@
 | 转存(token→detail→save→task) | ❌ | ✅ | ⚠️ | 缺反风控参数 `__dt`/`__t`,缺移动端域名切换 |
 | `GET /task` 异步轮询 | ❌ | ✅ | ✅ | 一致 |
 | `GET /config` 探活 + `__puus` 保活 | ✅ | ❌ | ❌ | 缺,长时间运行会 403 |
-| `GET /account/info` cookie 校验 | ❌ | ✅ | ⚠️ | 我们只检查 `__puus` 是否存在,不够准 |
+| `GET /account/info` cookie 校验 | ❌ | ✅ | ⚠️ | 我们只检查 `__puus`/`__pus` 是否存在,不够准 |
+| 扫码登录(uop.quark.cn CAS 换 cookie) | ❌ | ❌ | ✅ | 我们独有,2026-09-12 真机验证 |
 | 容量/签到(移动端,需 `kps/sign/vcode`) | ❌ | ✅ | ❌ | 缺(可选) |
 
 ---
@@ -93,8 +94,8 @@
 ### 创建分享(`quark/share/create.go`)—— 我们独有
 
 3 步(抓包确认,参考源未覆盖):
-1. `POST /share` body `{fid_list, title, url_type, expired_type, passcode?}` → `data.task_resp.data.share_id`
-2. `GET /task`(可选,步骤 1 一般 `task_sync=true` 已完成)
+1. `POST /share` body `{fid_list, title, url_type, expired_type, task_sync=1, passcode?}`(提取码第 1 步就传) → `data.task_resp.data.share_id`(文件分享直接返回)
+2. `GET /task`(文件夹分享是异步任务,响应无 `task_resp`,轮询至 `share_id` 平铺在 `data` 上)
 3. `POST /share/password` body `{share_id}` → `data.share_url`(短链,**无密码也必须调**,否则链接"已删除")
 
 ### 转存他人分享(`quark/share/transfer.go`)
@@ -111,6 +112,14 @@
 - **stoken vs share_fid_token**:`stoken` 是按分享(`pwd_id`)维度的会话 token;`share_fid_token` 是 detail 里**每个文件**各自的令牌。两者层级不同,不能混用。
 - 单次 save 建议 ≤100 个文件(`save_as_top_fids` 上限 100),本项目已自动分批。
 
+### 扫码登录(`quark/qrcode/`)—— 我们独有
+
+4 步(2026-09-12 真机验证,与 QuarkPan 等开源实现一致):
+1. `GET uop.quark.cn/cas/ajax/getTokenForQrcodeLogin?client_id=532&v=1.2&request_id=<uuid>` → `data.members.token`(二维码 token,有效期约 2 分钟)
+2. 二维码内容 = `su.quark.cn` 短链,调用方自行渲染成二维码图片
+3. 轮询 `GET uop.quark.cn/cas/ajax/getServiceTicketByQrcodeToken` → `status=2000000` 且 `data.members.service_ticket` 即已确认(`50004002` = 二维码过期)
+4. `GET pan.quark.cn/account/info?st=<ticket>&lw=scan` → `Set-Cookie` 落地完整会话(只有 `__pus` 不带 `__puus`,drive 接口实测认)
+
 ---
 
 ## ⚠️ 关键差异与潜在问题(按优先级)
@@ -122,14 +131,14 @@ quark-auto-save 的 `save` 还带了 `__dt`(1~5分钟随机毫秒)+ `__t`(时间
 
 ### 2. 缺 `__puus` cookie 保活,长时间运行会 403
 `__puus` 会过期,AList 的做法:每 100 分钟(±5min 抖动)主动发起一次**剥离了 `__puus`** 的 `GET /config`,让服务端重新下发新 `__puus`,合并回 cookie。否则下载/请求会逐渐 403。
-- **我们的现状**:`auth.IsValid` 只检查 `__puus` 是否存在,不刷新。短脚本没事,长期运行(后台服务/定时转存)会踩坑。
+- **我们的现状**:`auth.IsValid` 只检查 `__puus`/`__pus` 是否存在(扫码换发的 cookie 只带 `__pus`),不刷新。短脚本没事,长期运行(后台服务/定时转存)会踩坑。
 - 参考源:AList `util.go:198-244`(`refreshPuus`)
 
 ### 3. `file/sort` 缺 `fetch_risk_file_name=1` ✅ 已修复
 已在 List/ListPage 补上 `fetch_all_file=1` 和 `fetch_risk_file_name=1`(与 AList、quark-auto-save 对齐),含违规词的文件名返回原名,不再变 `***`。
 
 ### 4. `MakeDir` 取 fid 的方式可优化
-我们建目录后 `sleep 1s` 再 `List` 父目录按名匹配取 fid(`file.go:178-189`),重名会出错。quark-auto-save 用 `dir_path` 创建时响应直接含 `data.fid`。
+我们建目录后轮询 `List` 父目录按名匹配取 fid(每秒一次,最多 5 次——连续建多级目录时 1 秒后 List 可能还看不到新目录,2026-09-12 修复),重名会出错。quark-auto-save 用 `dir_path` 创建时响应直接含 `data.fid`。
 - 建议核实 `POST /file` 响应是否直接返回新 fid,若是则去掉 List 匹配。
 
 ### 5. 下载的 cookie 快照(低优先级,目前无影响)
@@ -145,7 +154,7 @@ AList 强调下载直链的签名绑定**发起 `/file/download` 那一刻的 co
 | 解压缩 | `POST /archive/unarchive` | qsas `:716-730` | 中 |
 | 路径批量转 fid | `POST /file/info/path_list` | qsas `:543-560` | 中(转存目标目录定位更方便) |
 | 视频转码地址 | `POST /file/v2/play/project` | AList `util.go:255` | 低(播放场景) |
-| cookie 有效性精确校验 | `GET /account/info`(域名 `pan.quark.cn`) | qsas `:445` | 中(替代 `__puus` 存在性检查) |
+| cookie 有效性精确校验 | `GET /account/info`(域名 `pan.quark.cn`) | qsas `:445` | 中(替代 `__puus`/`__pus` 存在性检查) |
 | 容量/每日签到 | `GET /capacity/growth/info`、`POST /capacity/growth/sign`(移动端,需签名) | qsas `:454-495` | 低 |
 
 ---

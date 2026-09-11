@@ -1,8 +1,9 @@
 // Package quark 是夸克网盘的 Go SDK 主包。
 //
-// 夸克网盘基于 cookie 鉴权（无 token、无签名、无扫码登录 API）。
-// 用户需从浏览器（pan.quark.cn 登录后 F12 → Network → 任意请求 → Cookie）复制完整 cookie。
-// 最关键字段 __puus。
+// 夸克网盘基于 cookie 鉴权（无 token、无签名）。
+// cookie 来源二选一：扫码登录（quark/qrcode，Login.Wait 直接返回完整 cookie），
+// 或从浏览器（pan.quark.cn 登录后 F12 → Network → 任意请求 → Cookie）复制。
+// 最关键字段 __puus/__pus（扫码换发的 cookie 只有 __pus，实测 drive 接口认）。
 //
 // 典型用法：
 //
