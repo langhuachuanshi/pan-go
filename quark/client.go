@@ -67,7 +67,7 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	if !auth.IsValid(result.Cookie) {
-		return nil, fmt.Errorf("quark: cookie 无效（缺少 __puus），请从浏览器复制完整 cookie")
+		return nil, fmt.Errorf("quark: cookie 无效（须含 __puus 或 __pus），请扫码登录或从浏览器复制完整 cookie")
 	}
 
 	c := &Client{
