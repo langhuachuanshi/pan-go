@@ -2,7 +2,8 @@
 //
 // 夸克文件列表接口：GET /file/sort
 // 参数：pdir_fid（父目录，根目录"0"）、_page（页码从1开始）、_size（每页数，默认50）、
-//      _fetch_total（是否返回总数，1）、_sort（排序，如 "file_type:asc,updated_at:desc"）
+//
+//	_fetch_total（是否返回总数，1）、_sort（排序，如 "file_type:asc,updated_at:desc"）
 package file
 
 import (
@@ -179,18 +180,24 @@ func (s *Service) MakeDir(ctx context.Context, pdirFID, name string) (string, er
 		return "", invoker.NewAPIError(resp.Code, resp.Msg)
 	}
 
-	// 建目录有延迟，稍等后按名查 fid。
-	time.Sleep(time.Second)
-	files, err := s.List(ctx, &ListRequest{PDirFID: pdirFID, Size: 200})
-	if err != nil {
-		return "", fmt.Errorf("makdir 成功但查 fid 失败: %w", err)
-	}
-	for _, f := range files {
-		if f.IsFolder() && f.FileName == name {
-			return f.FID, nil
+	// 建目录有秒级延迟，按名查 fid 需重试：实测连续建多级目录时（父目录刚建好
+	// 立刻建子目录），1 秒后 List 可能还看不到新目录。每秒查一次，最多 5 次。
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		time.Sleep(time.Second)
+		files, err := s.List(ctx, &ListRequest{PDirFID: pdirFID, Size: 200})
+		if err != nil {
+			lastErr = fmt.Errorf("makdir 成功但查 fid 失败: %w", err)
+			continue
 		}
+		for _, f := range files {
+			if f.IsFolder() && f.FileName == name {
+				return f.FID, nil
+			}
+		}
+		lastErr = fmt.Errorf("makdir 成功但在父目录未找到名为 %q 的文件夹", name)
 	}
-	return "", fmt.Errorf("makdir 成功但在父目录未找到名为 %q 的文件夹", name)
+	return "", lastErr
 }
 
 // Rename 重命名单个文件/文件夹。
