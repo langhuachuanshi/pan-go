@@ -3,6 +3,7 @@ package share
 import (
 	"context"
 	"crypto/rand"
+	"strconv"
 	"time"
 
 	"github.com/langhuachuanshi/quark-go/quark/invoker"
@@ -32,12 +33,12 @@ func genPasscode() string {
 
 // CreateRequest 创建分享请求。
 type CreateRequest struct {
-	FIDs        []string // 文件/文件夹 fid 列表（必填）
-	Title       string   // 分享标题（可选）
-	Forever     bool     // 是否永久有效（true=永久，false 用 ExpiredDays）
-	ExpiredDays int      // 有效天数（Forever=false 时生效，如 1/7/30）
-	WithPasscode bool    // 是否带提取码（私密分享）
-	Passcode    string   // 提取码（WithPasscode=true 时用）
+	FIDs         []string // 文件/文件夹 fid 列表（必填）
+	Title        string   // 分享标题（可选）
+	Forever      bool     // 是否永久有效（true=永久，false 用 ExpiredDays）
+	ExpiredDays  int      // 有效天数（Forever=false 时生效，如 1/7/30）
+	WithPasscode bool     // 是否带提取码（私密分享）
+	Passcode     string   // 提取码（WithPasscode=true 时用）
 }
 
 // Create 创建分享链接，返回可用的 https://pan.quark.cn/s/xxx 短链。
@@ -69,18 +70,22 @@ func (s *Service) Create(ctx context.Context, req *CreateRequest) (*types.Create
 
 	// —— 步骤1：POST /share 拿 task_id + share_id ——
 	// 注意：私密分享的 passcode 在第1步就传（抓包确认），不是第3步。
+	// task_sync=1 强制服务端同步完成任务再返回（文件夹分享是异步任务，
+	// 不带此参数时 task_resp 为空导致拿不到 share_id，2026-09-12 实测）。
 	body1 := map[string]any{
 		"fid_list":     req.FIDs,
 		"title":        req.Title,
 		"url_type":     urlType,
 		"expired_type": expiredType,
+		"task_sync":    1,
 	}
+	passcode := ""
 	if req.WithPasscode {
-		pc := req.Passcode
-		if pc == "" {
-			pc = genPasscode() // 未指定则生成符合规范的提取码
+		passcode = req.Passcode
+		if passcode == "" {
+			passcode = genPasscode() // 未指定则生成符合规范的提取码
 		}
-		body1["passcode"] = pc
+		body1["passcode"] = passcode
 	}
 	var r1 struct {
 		Code int    `json:"code"`
@@ -106,13 +111,32 @@ func (s *Service) Create(ctx context.Context, req *CreateRequest) (*types.Create
 		return nil, invoker.NewAPIError(r1.Data.TaskResp.Code, r1.Data.TaskResp.Msg)
 	}
 	shareID := r1.Data.TaskResp.Data.ShareID
+	// —— 步骤2：轮询 task 拿 share_id ——
+	// 文件分享同步完成（步骤1的 task_resp 直接带 share_id）；
+	// 文件夹分享是异步任务（响应 task_sync=false、无 task_resp），
+	// 需轮询 GET /task 到 status=2，share_id 平铺在 data 上（2026-09-12 实测）。
+	if shareID == "" && r1.Data.TaskID != "" {
+		for i := 0; i < 10; i++ {
+			var rt struct {
+				Code int `json:"code"`
+				Data struct {
+					Status  int    `json:"status"`
+					ShareID string `json:"share_id"`
+				} `json:"data"`
+			}
+			raw, _, err := s.inv.Get(ctx, "/task", map[string]string{
+				"task_id":     r1.Data.TaskID,
+				"retry_index": strconv.Itoa(i),
+			}, nil)
+			if err == nil && invoker.Decode(raw, &rt) == nil && rt.Data.ShareID != "" {
+				shareID = rt.Data.ShareID
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 	if shareID == "" {
 		return nil, invoker.NewAPIError(0, "创建分享未返回 share_id")
-	}
-
-	// —— 步骤2：轮询 task（步骤1一般 task_sync=true 已同步完成，但保险起见查一次）——
-	if taskID := r1.Data.TaskID; taskID != "" {
-		_, _, _ = s.inv.Get(ctx, "/task", map[string]string{"task_id": taskID, "retry_index": "0"}, nil)
 	}
 
 	// —— 步骤3：POST /share/password 拿最终 share_url（body 只含 share_id）——
@@ -120,8 +144,8 @@ func (s *Service) Create(ctx context.Context, req *CreateRequest) (*types.Create
 		"share_id": shareID,
 	}
 	var r3 struct {
-		Code int    `json:"code"`
-		Msg  string `json:"message"`
+		Code int                       `json:"code"`
+		Msg  string                    `json:"message"`
 		Data types.CreateShareResponse `json:"data"`
 	}
 	// 分享创建后可能需要短暂时间才可查，重试几次。
@@ -136,7 +160,7 @@ func (s *Service) Create(ctx context.Context, req *CreateRequest) (*types.Create
 			// 补 share_id（第3步响应不含，但有用）。
 			r3.Data.ShareID = shareID
 			if req.WithPasscode {
-				r3.Data.Passcode = req.Passcode
+				r3.Data.Passcode = passcode
 			}
 			return &r3.Data, nil
 		}

@@ -96,7 +96,9 @@ func loadCookieFile(p string) (string, error) {
 	return c, nil
 }
 
-// IsValid 粗略检查 cookie 是否含必要字段（__puus）。
+// IsValid 粗略检查 cookie 是否含必要字段。
+// 实测（2026-09-12 扫码登录）：ST 换发的 cookie 只带 __pus 不带 __puus，
+// drive 接口同样认（200）；网页登录则两者都有。任一存在即视为有效。
 func IsValid(cookie string) bool {
-	return strings.Contains(cookie, "__puus=")
+	return strings.Contains(cookie, "__puus=") || strings.Contains(cookie, "__pus=")
 }
