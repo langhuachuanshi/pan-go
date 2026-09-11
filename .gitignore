@@ -1,0 +1,35 @@
+# 构建产物 / 测试产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+dist/
+tmp/
+
+# 测试覆盖率
+*.cover
+coverage.txt
+coverage.html
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地账号/cookie（含敏感凭据，绝不提交）
+.env
+.env.*
+*_cookie.txt
+cookie.json
+cookie.txt

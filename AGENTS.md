@@ -2,54 +2,38 @@
 
 ## 项目概览
 
-蓝奏云网盘 Go SDK，基于逆向协议实现，零第三方依赖（go.mod 无任何 require）。
-模块名 `github.com/langhuachuanshi/lanzou-go`，所有代码在根包 `lanzou`。
-
-## 目录结构
-
-```
-lanzou-go/
-├── client.go           Client 主体：配置项、HTTP 收发、cookie 合并
-├── config.go           域名常量、默认参数、ChallengeConfig（acw_sc__v2 挑战参数）
-├── account.go          登录/登出/用户信息/帐号信息
-├── resolve.go          直链解析（无需登录，含挑战自适应）
-├── file.go             文件列表/分享链接/移动/删除/设密码
-├── folder.go           文件夹列表/创建/删除/移动
-├── upload.go           上传（一次性载入内存，保留兼容）
-├── upload_stream.go    流式上传（io.Pipe + 进度回调）
-├── download.go         文件/文件夹/直链下载
-├── recycle.go          回收站
-├── models.go           响应数据模型
-├── errors.go           哨兵错误（errors.Is 判断）
-├── doc.go              包文档
-└── _example/           可运行示例（下划线开头，go 工具链忽略编译，需 go run 手动运行）
-```
+蓝奏云网盘 Go SDK，逆向协议实现，零第三方依赖，全部代码在根包 `lanzou`。
+登录走 accounts.woozooo.com 新账号系统；acw_sc__v2 挑战参数集中在
+`config.go` 的 `ChallengeConfig`，换混淆只改参数不改逻辑。
+错误统一 `errors.go` 哨兵错误（`errors.Is`）；上传优先 `UploadFileWithProgress`
+（流式），`UploadFile` 仅兼容保留。
 
 ## 常用命令
 
 ```bash
-go build ./...        # 编译（含测试）
-go test ./...         # 单元测试（不依赖真实账号）
-go vet ./...
-go run ./_example/main.go   # 联调示例，需要真实蓝奏云账号
+go build ./... && go vet ./... && go test ./...
+go run ./_example/main.go   # 联调需真实账号（_example 不参与编译）
 ```
 
-## 架构与约定
+## 约定
 
-- **登录走新账号系统**：`accounts.woozooo.com`（`POST /accounts.php`，`task=uselogin`，
-  成功后跟随 `msgs` 中转跳转链落登录态 cookie）。旧 `pc.woozooo.com/account/loginajax`
-  已 404 废弃，不要往回改。
-- **反爬挑战参数集中管理**：acw_sc__v2 的置换表/XORKey 在 `ChallengeConfig`
-  （`config.go` 的 `DefaultChallengeConfig`）。蓝奏云换 JS 混淆时只更新参数，
-  不改解析逻辑。
-- **错误处理**：统一用 `errors.go` 的哨兵错误（`ErrPasswordWrong` 等），调用方
-  `errors.Is` 判断；API 层错误包装为 `ErrAPIError`。
-- **上传**：优先 `UploadFileWithProgress`（流式、进度回调）；`UploadFile` 保留向后兼容。
-- **cookie 会话**：`SetCookies` / `SetCookiesFromMap` 注入，`GetCookieString` 导出
-  持久化，下次免登恢复。
-- **文档同步**：`README.md`（快速上手）、`API.md`（全量 API 参考）、`CHANGELOG.md`
-  （Keep a Changelog 风格，条目与 git tag 版本对应——发 tag 前先补条目）。
-  公开 API 变更时三处都要同步。
+- 文档三件套同步：`README.md`（上手）、`API.md`（全量 API）、`CHANGELOG.md`（版本条目）。
+- cookie 会话：`SetCookies`/`SetCookiesFromMap` 注入，`GetCookieString` 导出持久化。
+- 凭据只走环境变量或本地文件，绝不写进代码、示例默认值和文档。
+
+## 文档与计划
+
+- `docs/code-review-YYYY-MM-DD.md`：代码审查报告——范围/方法、发现按 P0-P2
+  分级（位置+依据+处置）、修复计划用 checkbox、每项带验收标准；已修的标 ☑。
+- `docs/plans/<主题>.md`：开发/重构计划。
+- **计划先行**：多步开发或修复，先把计划落到 `docs/` 再动手，执行中更新
+  勾选与结果——计划不丢失、可追溯。
+
+## Tag 规范
+
+- `vX.Y.Z`（semver）：不兼容变更升主位，新功能升次位，修复升第三位。
+- 发 tag 前置：build / vet / test 全过，且 `CHANGELOG.md` 已有对应条目
+  （条目与 tag 一一对应，先补条目后打 tag）。
 
 ## 行为准则
 以下准则偏向谨慎而非速度，目的是减少常见编码失误。
