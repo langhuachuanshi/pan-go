@@ -10,6 +10,7 @@
 ## 待办
 
 - [ ] 补 alipan 模块代码审查报告（docs/reviews/2026-09-12-alipan.md）
+- [ ] 通用网盘基础模块（core）统一架构：计划已落 docs/plans/2026-09-12-core-architecture.md，待讨论批准后执行
 - [ ] 各模块审查报告 P1 / P2 修复项逐项落地（docs/reviews/2026-09-12-baidupan / lanzou / quark.md）
 - [ ] API.md 分批补全：alipan（方法最多）与 baidu 的长尾方法待续写
 - [ ] 首个 tag（pan-go/v26.37.x）：等用户明确指令，按发版流程执行
