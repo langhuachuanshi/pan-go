@@ -1,6 +1,15 @@
-# Changelog
+# 更新日志
 
-All notable changes to lanzou-go will be documented in this file.
+记录 lanzou 模块的全部对外变更；条目与 tag 一一对应，先补条目后打 tag。
+
+## [待定] - 2026-09-12
+
+### 变更
+
+- 仓库并入 pan-go 多模块统一仓库，import 路径变更为
+  `github.com/langhuachuanshi/pan-go/lanzou`（破坏性）
+- 模块重构为 invoker + Service 子包结构（account/file/folder/upload/download/recycle/resolve），
+  调用方式改为 `c.Files().List()` 风格（破坏性）；哨兵错误与挑战参数用法不变
 
 ## [0.3.2] - 2026-09-12
 

@@ -13,18 +13,19 @@ pan-go/                 # 多模块 monorepo：根目录无 go.mod，靠 go.work
 │                       #   + auth/device/drive/file/invoker/share/types/user
 ├── baidu/              # 百度网盘 module：go.mod + 主包
 │                       #   + auth/clouddl/download/file/management/share/upload/user/qrcode/panhome/sign/types/invoker
-├── lanzou/             # 蓝奏云 module：go.mod + 根包平铺
-│                       #   （client/config/account/file/folder/upload/upload_stream/download/recycle/resolve/models/errors/doc）
+├── lanzou/             # 蓝奏云 module：主包（client/http/challenge/stream/config/errors）
+│                       #   + invoker/account/file/folder/upload/download/recycle/resolve
 ├── quark/              # 夸克 module：go.mod + 主包
 │                       #   + auth/download/file/invoker/qrcode/share/types/upload
+│                       #   + INTERFACE.md（接口参考索引）
+├── .agents/skills/     # 仓库自带技能（api-docs：接口文档写作规范）
 └── docs/
     ├── plans/          # 开发/迁移计划
-    ├── reviews/        # 各模块代码审查报告
-    ├── lanzou/         # API.md、CHANGELOG.md
-    └── quark/          # INTERFACE.md（接口参考索引）
+    └── reviews/        # 各模块代码审查报告
 ```
 
-每个模块：module 路径 `github.com/langhuachuanshi/pan-go/<网盘>`，模块根即主包。
+每个模块：module 路径 `github.com/langhuachuanshi/pan-go/<网盘>`，模块根即主包；
+三件套（README.md / API.md / CHANGELOG.md）与模块 AGENTS.md 都在模块根目录。
 
 ## 常用命令
 
