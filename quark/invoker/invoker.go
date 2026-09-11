@@ -7,6 +7,7 @@ package invoker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -28,6 +29,17 @@ func (e *APIError) Error() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("quark: code=%d status=%d message=%s", e.Code, e.Status, e.Message)
+}
+
+// IsAuthError 判断错误是否为登录态失效（未登录/cookie 过期），调用方应引导重新
+// 扫码登录（quark/qrcode.Create）。实测（2026-09-12）：31001 = require login，
+// 31003 = cookie 失效。
+func IsAuthError(err error) bool {
+	var ae *APIError
+	if errors.As(err, &ae) {
+		return ae.Code == 31001 || ae.Code == 31003
+	}
+	return false
 }
 
 // Invoker 各业务子包依赖的调用接口。
