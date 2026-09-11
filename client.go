@@ -322,3 +322,14 @@ func (c *Client) SetCookiesFromMap(cookieMap map[string]string) {
 	c.mergeCookies(cookies)
 	c.logged = true
 }
+
+// GetCookieString 导出当前会话的 cookie（"k1=v1; k2=v2" 单行格式）。
+// 账号密码 Login 或注入浏览器 Cookie 后，调用方可用它把会话持久化，
+// 下次免登直接 SetCookiesFromMap 恢复。
+func (c *Client) GetCookieString() string {
+	parts := make([]string, 0, len(c.cookies))
+	for _, ck := range c.cookies {
+		parts = append(parts, ck.Name+"="+ck.Value)
+	}
+	return strings.Join(parts, "; ")
+}
