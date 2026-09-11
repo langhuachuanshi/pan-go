@@ -25,31 +25,36 @@ docs/plans/、docs/reviews/。docs/<网盘>/ 取消，内容随模块走。
 ## 阶段
 
 ### 阶段 1：lanzou 结构改造（破坏性，单独提交）
-- [ ] 主包保留：Client（实现 invoker.Invoker）、Config/Option、errors.go 哨兵错误
-- [ ] 新增 `lanzou/invoker/`：Invoker 接口（Get/Post/PostMultipart/fetchPageWithChallenge 能力）
-- [ ] Service 子包：`account/`（Login/Logout/User/AccountInfo）、`file/`（列表/分享链接/
-      移动/删除/设密码）、`folder/`、`upload/`（含流式）、`download/`、`recycle/`、`resolve/`（直链解析）
-- [ ] 对外 API 对齐其他模块风格：`c.Files().List(...)` 等 Service 访问器
-- [ ] 现有单测迁移到对应子包并保持通过
-- [ ] 验证：build / vet / test 全过
-- 验收：lanzou 目录形态与其余三模块一致；无平铺业务文件残留
+- [x] 主包保留：Client（实现 invoker.Invoker）、Config/Option、errors.go 哨兵错误
+- [x] 新增 `lanzou/invoker/`：Invoker 接口（Get/Post/PostMultipart/PostMultipartStream/
+      FetchPageWithChallenge/TaskURL/UploadURL/AjaxmURL/Vei 等）
+- [x] Service 子包：`account/`（Info/Detail）、`file/`（List/ShareURL/Move/Delete/SetPassword）、
+      `folder/`、`upload/`（File/Stream/ByURL）、`download/`（File/FileAuto/Dir/ByURL）、
+      `recycle/`、`resolve/`（直链解析）
+- [x] 对外 API 对齐其他模块风格：`c.Files().List(...)` 等 Service 访问器；
+      Login/Logout 为会话生命周期，保留在主包 Client
+- [x] 现有单测迁移：account/stream 测试随包保留并通过
+- [x] 验证：build / vet / test 全过
+- 验收：lanzou 目录形态与其余三模块一致；无平铺业务文件残留 ✅（提交 d8916e9）
 
 ### 阶段 2：文档随模块走 + 三件套建档
-- [ ] `docs/lanzou/API.md、CHANGELOG.md → lanzou/`（API.md 后续被 api-docs 版取代/合并）
-- [ ] `docs/quark/INTERFACE.md → quark/`
-- [ ] 四模块 `CHANGELOG.md`：lanzou 平移历史；baidu/quark/alipan 首建写迁移条目
-- [ ] 根 README 瘦身为纯导航；根 docs/ 只剩 plans/、reviews/
-- 验收：根 docs/ 无网盘子目录；每模块三件套齐全
+- [x] `docs/lanzou/API.md、CHANGELOG.md → lanzou/`（API.md 由 api-docs 版重写）
+- [x] `docs/quark/INTERFACE.md → quark/`
+- [x] 四模块 `CHANGELOG.md`：lanzou 平移历史并补迁移条目；baidu/quark/alipan 首建迁移条目
+      （版本号"待定"，随首次打 tag 定稿）
+- [x] 根 README 瘦身为纯导航；根 docs/ 只剩 plans/、reviews/
+- 验收：根 docs/ 无网盘子目录；每模块三件套齐全 ✅（提交 3b6d8de）
 
 ### 阶段 3：API.md ×4（api-docs 技能，分批）
-- [ ] lanzou/API.md（配合阶段 1 新 API）
-- [ ] quark/API.md
-- [ ] baidu/API.md
-- [ ] alipan/API.md（方法最多，放最后）
-- 验收：每份都是八段式结构；全局约定一页 + 每接口一节；不与 README 重复
+- [x] lanzou/API.md（配合阶段 1 新 API，全量）
+- [x] quark/API.md（全量）
+- [x] baidu/API.md（核心方法 + 长尾表格）
+- [x] alipan/API.md（核心方法 + 长尾表格，长尾细节后续续写）
+- 验收：八段式结构（Go 适配：方法签名/调用示例/参数表/返回值/失败/注意）；
+  全局约定一页 + 每方法一节 ✅
 
 ### 阶段 4：收尾
-- [ ] 全量验证（逐模块 build/vet/test）
-- [ ] 根 TODO.md 更新
+- [x] 全量验证（逐模块 build/vet/test + 旧路径 grep 清零）
+- [x] 根 TODO.md 更新
 - [ ] 提交按规范拆分（refactor / docs），push（tag 仍等用户明确指令）
 - [ ] 全局 api-docs 技能移除（完成"移动"语义），或按用户指示保留

@@ -1,326 +1,264 @@
-# API 参考
+# lanzou 模块 API 参考
 
-> lanzou-go 完整 API 文档，按功能模块组织。
+> 面向使用者的方法文档。协议细节与逆向参考见模块 `AGENTS.md`。
 
----
+## 全局约定
 
-## NewClient
-
-```go
-func NewClient(opts ...Option) *Client
-```
-
-| Option | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `WithTimeout(sec)` | `int` | `30` | HTTP 超时（秒） |
-| `WithMaxSize(bytes)` | `int` | `104857600` | 单文件大小限制 |
-| `WithMaxDownloadCount(n)` | `int` | `3` | 并发下载数 |
-| `WithUploadDelay(min, max)` | `int, int` | `0, 0` | 上传延迟（毫秒） |
-| `WithHTTPClient(c)` | `*http.Client` | 默认 | 自定义 HTTP 客户端 |
-| `WithChallengeConfig(c)` | `*ChallengeConfig` | 内置默认值 | 反爬挑战参数 |
-
-### 运行时配置
-
-```go
-client.SetTimeout(60)
-client.SetMaxSize(50 * 1024 * 1024)
-client.SetMaxDownloadCount(5)
-client.SetUploadDelay(100, 500) // 上传延迟（毫秒）
-client.SetChallengeConfig(&cfg)
-client.GetChallengeConfig()     // 获取当前挑战参数
-// cookie 注入
-client.SetCookies(cookies)      // []*http.Cookie
-client.SetCookiesFromMap(map[string]string{...})
-client.GetCookieString()        // 导出当前 cookie（"k1=v1; k2=v2"），可持久化会话
-```
+- **Client 构造**：`c := lanzou.NewClient(lanzou.WithTimeout(30))`，可选 `WithMaxSize / WithMaxDownloadCount / WithUploadDelay / WithChallengeConfig / WithHTTPClient`。
+- **鉴权**：`c.Login(user, pwd)` 账号密码登录；或 `c.SetCookiesFromMap(map[string]string{...})` 注入已持久化 cookie 免登。`c.GetCookieString()` 导出会话。
+- **错误处理**：所有错误用 `errors.Is` 判断哨兵：`lanzou.ErrNotLoggedIn / ErrPasswordWrong / ErrFileExpired / ErrFileSizeLimit / ErrInvalidURL / ErrExtractFailed / ErrUploadFailed / ErrDownloadFailed / ErrAPIError`。
+- **业务入口**：`c.Resolve() / c.Account() / c.Files() / c.Folders() / c.Upload() / c.Download() / c.Recycle()`。
+- 登录登出是会话生命周期方法，在 Client 上：`c.Login / c.Logout`。
 
 ---
 
-## 一、直链解析（无需登录）
+## 直链解析（c.Resolve()，无需登录）
 
-### GetDurlByURL
+### 通过分享链接取直链
 
-```go
-func (c *Client) GetDurlByURL(shareURL, pwd string) (string, error)
-```
+**方法名**：`GetDurlByURL`
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| shareURL | string | ✅ | 蓝奏云分享链接 |
-| pwd | string | ❌ | 密码，无密码传 `""` |
+**方法签名**：`func (s *Service) GetDurlByURL(shareURL, pwd string) (string, error)`
 
-返回：直链 URL
+**调用示例**：
 
 ```go
-durl, err := client.GetDurlByURL("https://36cq.lanzouo.com/i5qJz2z14zoh", "")
+durl, err := c.Resolve().GetDurlByURL("https://pan.lanzoul.com/xxxxx", "")
 ```
 
-### GetFileInfo
+**参数说明**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| shareURL | string | 是 | 蓝奏云分享链接（各域名自适应） |
+| pwd | string | 否 | 提取密码，无密码传 `""` |
+
+**返回值**：`durl`（真实下载直链，GET 时需带同款 UA 与 Referer）。
+
+**失败**：`ErrInvalidURL` 非蓝奏链接；`ErrPasswordWrong` 密码错误；`ErrFileExpired` 文件失效；`ErrExtractFailed` 页面解析失败（常见于换混淆）。
+
+**注意**：无需登录；蓝奏云换 JS 混淆导致解析失败时，更新 `c.SetChallengeConfig(&lanzou.ChallengeConfig{...})` 即可，无需升级 SDK。
+
+### 通过分享链接取文件详情
+
+**方法名**：`GetFileInfo`
+
+**方法签名**：`func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error)`
+
+**调用示例**：
 
 ```go
-func (c *Client) GetFileInfo(shareURL, pwd string) (*FileDetail, error)
+detail, err := c.Resolve().GetFileInfo("https://pan.lanzoul.com/xxxxx", "pwd")
+fmt.Println(detail.NameAll, detail.Size, detail.DURL)
 ```
 
-返回文件详情（含直链）。
+**参数说明**：同 `GetDurlByURL`。
 
-```go
-type FileDetail struct {
-    FileID      string `json:"file_id"`
-    NameAll     string `json:"name_all"`   // 文件名
-    Size        string `json:"size"`       // 文件大小
-    UploadTime  string `json:"time"`       // 上传时间
-    DURL        string `json:"durl"`       // 直链
-    DownloadURL string `json:"url"`        // 分享链接
-    Description string `json:"des"`        // 描述
-    IsNewd      int    `json:"is_newd"`
-}
-```
+**返回值**：`detail.NameAll`（文件名）、`detail.Size`（大小文本）、`detail.DURL`（直链，可能为空）、`detail.DownloadURL`（原分享链接）、`detail.FileID`。
 
-### GetDurlByFolderURL
+**失败**：同 `GetDurlByURL`。
 
-```go
-func (c *Client) GetDurlByFolderURL(folderURL, pwd string, subdir bool) ([]string, error)
-```
+**注意**：iframe 或直链步骤失败时不报错，返回已有部分信息（`DURL` 为空），调用方需按需检查。
 
-通过文件夹分享链接获取直链列表。
-
-### GetDurlByURLAndFolder
-
-```go
-func (c *Client) GetDurlByURLAndFolder(shareURL, pwd, folderID string) (string, error)
-```
-
-等价于 `GetDurlByURL`。
-
----
-
-## 二、账号操作
-
-### Login
-
-```go
-func (c *Client) Login(user, pwd string) error
-```
-
-### Logout
-
-```go
-func (c *Client) Logout() error
-```
-
-### GetUserInfo
-
-```go
-func (c *Client) GetUserInfo() (*UserInfo, error)
-```
-
-### GetAccountInfo
-
-```go
-func (c *Client) GetAccountInfo() (*AccountInfo, error)
-```
-
----
-
-## 三、文件操作
-
-### GetFileList
-
-```go
-func (c *Client) GetFileList(fid int) (*FileList, error)
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| fid | int | ✅ | 文件夹ID，根目录传 `-1` |
-
-```go
-type FileInfo struct {
-    ID      string `json:"id"`       // 文件ID
-    NameAll string `json:"name_all"` // 文件名
-    Size    string `json:"size"`     // 大小
-    Time    string `json:"time"`     // 上传时间
-    Icon    string `json:"icon"`     // 图标类型
-    Downs   string `json:"downs"`    // 下载次数
-    Onof    string `json:"onof"`     // 密码开关
-    IsNewd  string `json:"is_newd"`  // 分享URL前缀
-    FID     string `json:"f_id"`     // 分享ID
-}
-```
-
-### GetShareURL
-
-```go
-func (c *Client) GetShareURL(fileID string) (*FileShareInfo, error)
-```
-
-获取文件的分享链接（fileID 为 `GetFileList` 返回的 `FileInfo.ID`）。
-
-```go
-type FileShareInfo struct {
-    IsNewd string `json:"is_newd"` // 分享URL前缀，如 https://wwa.lanzoui.com
-    FID    string `json:"f_id"`    // 分享ID，拼接在 is_newd 后面
-    Pwd    string `json:"pwd"`     // 提取密码（"" 表示无密码）
-    Onof   string `json:"onof"`    // 是否有密码 "1"=有 "2"=无
-}
-```
-
-### GetFileInfoByURL
-
-```go
-func (c *Client) GetFileInfoByURL(shareURL, pwd string) (*FileDetail, error)
-```
-
-等价于 `GetFileInfo`。
-
-### DownloadFile
-
-```go
-func (c *Client) DownloadFile(savePath, shareURL string, pwd ...string) error
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| savePath | string | ✅ | 保存路径 |
-| shareURL | string | ✅ | 分享链接 |
-| pwd | ...string | ❌ | 密码 |
-
-### DownloadFile2
-
-```go
-func (c *Client) DownloadFile2(saveDir, shareURL, pwd string) error
-```
-
-自动获取文件名，保存到指定目录。
-
-### DownloadDir
-
-```go
-func (c *Client) DownloadDir(saveDir string, fid int) error
-```
-
-递归下载整个文件夹（含子文件夹）。
-
-### DownloadByURL
-
-```go
-func (c *Client) DownloadByURL(savePath, durl string) error
-```
-
-直接通过直链下载。
-
-### UploadFile
-
-```go
-func (c *Client) UploadFile(filePath string, fid int, desc ...string) (*UploadResult, error)
-```
-
-上传本地文件。
-
-### UploadFileWithProgress
-
-```go
-func (c *Client) UploadFileWithProgress(filePath string, fid int, onProgress func(uploaded, total int64), desc ...string) (*UploadResult, error)
-```
-
-流式上传本地文件，支持进度回调。与 `UploadFile` 的区别：文件内容不一次性载入内存，`onProgress` 在网络传输时触发，反映真实上传进度（可为 `nil`）。
-
-### UploadFileByURL
-
-```go
-func (c *Client) UploadFileByURL(fileURL string, fid int, desc ...string) (*UploadResult, error)
-```
-
-上传网盘已有文件（非本地文件）。
-
-### MoveFiles
-
-```go
-func (c *Client) MoveFiles(fids []string, fid int) error
-```
-
-### DeleteFiles
-
-```go
-func (c *Client) DeleteFiles(fids []string) error
-```
-
-### SetPassword
-
-```go
-func (c *Client) SetPassword(entityID int, pwd string) error
-```
-
----
-
-## 四、文件夹操作
-
-### GetDirList
-
-```go
-func (c *Client) GetDirList(fid int) (*FolderList, error)
-```
-
-```go
-type FolderInfo struct {
-    FolID      string `json:"fol_id"`     // 文件夹ID
-    Name       string `json:"name"`       // 名称
-    FolderDesc string `json:"folder_des"` // 描述
-    Onof       string `json:"onof"`       // 密码开关
-    IsLock     string `json:"is_lock"`    // 锁定
-}
-```
-
-### NewFolder
-
-```go
-func (c *Client) NewFolder(name string, parentID int) (*FolderInfo, error)
-```
-
-### DeleteFolder / MoveFolder
-
-```go
-func (c *Client) DeleteFolder(fids []string) error
-func (c *Client) MoveFolder(fids []string, fid int) error
-```
-
----
-
-## 五、回收站
+### 兼容方法
 
 | 方法 | 说明 |
 |------|------|
-| `GetRecycleList(page int)` | 获取回收站列表 |
-| `MoveToTrash(fids []string)` | 移入回收站 |
-| `RestoreFiles(fids []string)` | 恢复文件 |
-| `CleanRecycle()` | 清空回收站 |
+| `GetDurlByFolderURL(folderURL, pwd string, subdir bool) ([]string, error)` | 文件夹分享解析，当前行为与 `GetDurlByURL` 相同 |
+| `GetDurlByURLAndFolder(shareURL, pwd, folderID string) (string, error)` | folderID 参数未使用（历史兼容，勿依赖） |
+| `FileInfoByURL(shareURL, pwd string) (*FileDetail, error)` | 兼容别名，等价 `GetFileInfo` |
 
 ---
 
-## 错误码
+## 会话（c 上）与账号（c.Account()）
+
+### 登录
+
+**方法名**：`Login`
+
+**方法签名**：`func (c *Client) Login(user, pwd string) error`
+
+**调用示例**：
 
 ```go
-ErrNotLoggedIn    // 未登录
-ErrFileExpired    // 文件已过期
-ErrPasswordWrong  // 密码错误
-ErrFileSizeLimit  // 超过大小限制
-ErrInvalidURL     // 无效链接
-ErrExtractFailed  // 页面解析失败
-ErrUploadFailed   // 上传失败
-ErrDownloadFailed // 下载失败
-ErrAPIError       // API 错误
+err := c.Login("user", "pass")
 ```
 
----
+**参数说明**：
 
-## 挑战参数更新
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| user | string | 是 | 账号 |
+| pwd | string | 是 | 密码 |
+
+**返回值**：无（成功即建立会话）。
+
+**失败**：`ErrPasswordWrong` 密码错误；`ErrAPIError` 其他登录失败（含旧接口迁移后的提示语）。
+
+**注意**：登录走 accounts.woozooo.com 新账号系统；成功后可用 `c.GetCookieString()` 持久化会话，下次 `SetCookiesFromMap` 免登。
+
+### 登出
+
+**方法名**：`Logout`
+
+**方法签名**：`func (c *Client) Logout() error`
+
+**调用示例**：`err := c.Logout()`（无参数）。
+
+**返回值**：无。**注意**：登出后本地 cookies 清空。
+
+### 用户信息 / 帐号详情
+
+**方法名**：`Info` / `Detail`
+
+**方法签名**：`func (s *Service) Info() (*UserInfo, error)`、`func (s *Service) Detail() (*AccountInfo, error)`
+
+**调用示例**：
 
 ```go
-// 蓝奏云换混淆时更新
-client.SetChallengeConfig(&lanzou.ChallengeConfig{
-    Perm:   [40]int{/* 新置换表 */},
-    XORKey: "/* 新XOR密钥 */",
+u, _ := c.Account().Info()      // u.UserName
+a, _ := c.Account().Detail()    // a.TotalSize / a.UsedSize
+```
+
+**参数说明**：无参数。
+
+**返回值**：`UserName`（用户 ID）；`Detail` 另含 `TotalSize / UsedSize`（从个人中心页面提取的容量文本）。
+
+**失败**：`ErrNotLoggedIn` 未登录。
+
+**注意**：`Detail` 从 HTML 页面正则提取，格式随蓝奏云改版可能变化。
+
+---
+
+## 文件（c.Files()）
+
+### 列出文件
+
+**方法名**：`List`
+
+**方法签名**：`func (s *Service) List(fid int) (*FileList, error)`
+
+**调用示例**：
+
+```go
+files, err := c.Files().List(-1) // 根目录传 -1
+```
+
+**参数说明**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| fid | int | 是 | 文件夹 ID，根目录传 `-1` |
+
+**返回值**：`files.Text[]`，每项含 `ID / NameAll / Size / Time / Icon / Downs / Onof / IsNewd / FID`。
+
+**失败**：`ErrNotLoggedIn`；`ErrAPIError` 接口返回异常。
+
+**注意**：自动翻页直至空页。
+
+### 获取分享链接
+
+**方法名**：`ShareURL`
+
+**方法签名**：`func (s *Service) ShareURL(fileID string) (*FileShareInfo, error)`
+
+**调用示例**：
+
+```go
+info, _ := c.Files().ShareURL(fileID)
+share := info.IsNewd + "/" + info.FID // 完整分享链接
+```
+
+**参数说明**：`fileID`（string，必填）—— `List` 返回的 `FileInfo.ID`。
+
+**返回值**：`IsNewd`（分享 URL 前缀）、`FID`（分享 ID）、`Pwd`（提取密码，空=无）、`Onof`（"1"=有密码）。
+
+**失败**：`ErrNotLoggedIn`；`ErrAPIError`。
+
+### 其他
+
+| 方法 | 说明 |
+|------|------|
+| `Move(fids []string, fid int) error` | 批量移动文件到目标文件夹 |
+| `Delete(fids []string) error` | 批量删除文件（进回收站） |
+| `SetPassword(entityID int, pwd string) error` | 设置文件/文件夹密码 |
+
+---
+
+## 文件夹（c.Folders()）
+
+| 方法 | 说明 |
+|------|------|
+| `List(fid int) (*FolderList, error)` | 列出子文件夹（根目录传 -1；返回 `Text[].FolID / Name`） |
+| `Create(name string, parentID int) (*FolderInfo, error)` | 创建文件夹，返回含 `FolID` |
+| `Delete(fids []string) error` | 批量删除 |
+| `Move(fids []string, fid int) error` | 批量移动到目标文件夹 |
+
+均要求登录；失败返回 `ErrNotLoggedIn` 或 `ErrAPIError`。
+
+---
+
+## 上传（c.Upload()）
+
+### 流式上传（推荐）
+
+**方法名**：`Stream`
+
+**方法签名**：`func (s *Service) Stream(filePath string, fid int, onProgress func(uploaded, total int64), desc ...string) (*UploadResult, error)`
+
+**调用示例**：
+
+```go
+res, err := c.Upload().Stream("local.txt", -1, func(up, total int64) {
+    fmt.Printf("%d/%d\n", up, total)
 })
+fmt.Println(res.FileID, res.FileName)
 ```
 
-详见 [README.md](./README.md#蓝奏云换混淆时如何更新)。内置默认参数可通过 `DefaultChallengeConfig()` 获取。
+**参数说明**：
+
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| filePath | string | 是 | 本地文件路径 |
+| fid | int | 是 | 目标文件夹 ID（根目录传 0） |
+| onProgress | func(int64, int64) | 否 | 进度回调（uploaded, total 字节），可 nil |
+| desc | ...string | 否 | 文件描述 |
+
+**返回值**：`res.FileID / res.FileName / res.Info`。
+
+**失败**：`ErrNotLoggedIn`；`ErrFileSizeLimit` 超限；`ErrUploadFailed` 上传被拒；`ErrAPIError` 响应异常。
+
+**注意**：边读边发不占内存，`onProgress` 反映真实网络进度；蓝奏 html5up.php 支持 chunked。
+
+### 其他
+
+| 方法 | 说明 |
+|------|------|
+| `File(filePath string, fid int, desc ...string) (*UploadResult, error)` | 一次性载入内存的兼容版本 |
+| `ByURL(fileURL string, fid int, desc ...string) (*UploadResult, error)` | 转存网盘已有文件（非本地文件） |
+
+---
+
+## 下载（c.Download()）
+
+| 方法 | 说明 |
+|------|------|
+| `File(savePath, shareURL string, pwd ...string) error` | 按分享链接下载到指定路径 |
+| `FileAuto(saveDir, shareURL, pwd string) error` | 自动按远端文件名保存到目录 |
+| `Dir(saveDir string, fid int) error` | 递归下载整个文件夹（并发受 `WithMaxDownloadCount` 限制；汇总错误返回） |
+| `ByURL(savePath, durl string) error` | 直接按直链下载 |
+
+**注意**：直链 GET 需带与 SDK 相同的 UA；`Dir` 部分文件失败不中断整体，错误在返回值中汇总。
+
+---
+
+## 回收站（c.Recycle()）
+
+| 方法 | 说明 |
+|------|------|
+| `List(page int) (*RecycleList, error)` | 分页列表（`Text[].FileID / FileName / FilePath / UploadTime`） |
+| `MoveToTrash(fids []string) error` | 移入回收站 |
+| `RestoreFiles(fids []string) error` | 恢复 |
+| `CleanRecycle() error` | 清空回收站 |
+
+**注意**：`CleanRecycle` 不可逆，调用前确认。
