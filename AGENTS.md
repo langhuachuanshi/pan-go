@@ -1,3 +1,56 @@
+# AGENTS.md
+
+## 项目概览
+
+百度网盘网页端（抓包）Go SDK。基于 BDUSS + STOKEN cookie 鉴权（网页登录态），
+走 pan.baidu.com 网页端 REST API。与 openapi 分支（OAuth + /xpan/*）是两套
+完全不同的鉴权模型，不要混用。模块名 `github.com/langhuachuanshi/baidupan-go`。
+
+## 目录结构
+
+```
+baidupan-go/
+├── baidu/             主包 Client（实现 invoker.Invoker）+ Config
+├── baidu/auth/        BDUSS/STOKEN 凭证管理 + bdstoken 获取
+├── baidu/file/        列表/搜索/元信息/递归列目录
+├── baidu/management/  建目录/复制/移动/重命名/删除/回收站
+├── baidu/upload/      分片上传（precreate→superfile2→create，含秒传）
+├── baidu/download/    下载（dlink/流式）
+├── baidu/share/       创建分享/管理 + 转存他人分享
+├── baidu/clouddl/     离线下载
+├── baidu/user/        容量/用户信息/登录态探活
+├── baidu/qrcode/      扫码登录（换发 BDUSS/STOKEN）
+├── baidu/panhome/     sign/bdstoken 缓存
+├── baidu/sign/        签名算法（Sign2 / locate download 签名）
+├── baidu/types/       数据模型
+├── baidu/invoker/     共享调用接口
+└── example/           实测脚本（test_*），需真实凭证
+```
+
+## 常用命令
+
+```bash
+go build ./...
+go test ./...        # 单元测试（不依赖真实账号）
+go vet ./...
+PANBAIDU_BDUSS=xxx PANBAIDU_STOKEN=yyy go run ./example/test_list   # 联调实测
+```
+
+## 架构与约定
+
+- **invoker 接口模式**（同 quark-go/alipan-go）：业务子包依赖 `invoker.Invoker`
+  接口，主包 `Client` 实现，避免循环依赖。新增子包照此办理。
+- **接口约定**（均实测确认，详见 `baidu/client.go` 包注释）：接口全走
+  `pan.baidu.com`（pcs 域名仅用于分片上传 superfile2）；query 统一带
+  `channel=chunlei&web=1&app_id=250528&clienttype=0`；写操作额外带 bdstoken
+  （auth 包自动获取）和 `Referer: https://pan.baidu.com/disk/main`。
+- **凭证**：BDUSS 所有接口必需，STOKEN 写操作必需；扫码登录
+  （`baidu/qrcode`）可换发两者。
+- **实测文化**：接口行为以真机实测为准，结论写进提交信息与代码注释；
+  example/test_* 就是实测脚本，新功能先补实测。
+- **文档形态**：当前无 README，接口说明以各包 doc comment 与 example/ 为准；
+  两者须随实现同步更新。
+
 ## 行为准则
 以下准则偏向谨慎而非速度，目的是减少常见编码失误。
 
