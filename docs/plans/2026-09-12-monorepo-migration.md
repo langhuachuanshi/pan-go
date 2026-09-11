@@ -1,8 +1,19 @@
 # pan-go 统一仓库迁移计划
 
-- 状态：**待用户批准**（批准前不动任何代码）
+- 状态：**主体已完成**（2026-09-12 用户批准多模块方案后执行；收尾项见文末）
 - 日期：2026-09-12
 - 相关仓库：alipan-go、baidupan-go、lanzou-go、quark-go → 合并为 `D:\Project\pan-go`
+
+## 决议记录
+
+- **待确认① → 已定：多模块（M）**。落地取优化形态：模块目录即包根
+  （`alipan/`、`baidu/`、`lanzou/`、`quark/`），module 路径
+  `github.com/langhuachuanshi/pan-go/<网盘>`（import 两段，非三段冗余）；
+  tag 加网盘前缀（`quark/v26.37.x`）。
+- **待确认② → 已按默认执行：pan-go 远端建为私有**（baidupan 历史并入，公开需重估）。
+- **追加决议：example 全部删除**（用户裁定：文档已足够详细，示例冗余）。
+  连带关闭 quark 审查报告 P1-2（diag~diag5 调试脚本）与 lanzou 根 AGENTS 的
+  example 相关项；根 README/AGENTS 的质量门命令改为逐模块 go vet/test。
 
 ## 已确认的决定
 
@@ -63,36 +74,27 @@ pan-go/
 
 ## 迁移步骤
 
-1. [ ] `git subtree add` 依次并入四仓库 main 分支（保留完整提交历史，
+1. [x] `git subtree add` 依次并入四仓库 main 分支（保留完整提交历史，
        先落位到 `alipan-go/`、`baidupan-go/`、`lanzou-go/`、`quark-go/` 子目录）。
-2. [ ] 结构重排（单独一次提交，纯 `git mv`，历史可追溯）：
-   - `alipan-go/alipan → alipan`，`alipan-go/example → example/alipan`
-   - `baidupan-go/baidu → baidu`，`baidupan-go/example → example/baidu`
-   - `quark-go/quark → quark`，`quark-go/example → example/quark`
-   - `lanzou-go/*.go + *_test.go → lanzou/`，`lanzou-go/_example → example/lanzou`
-   - 文档归位：`lanzou-go/API.md、CHANGELOG.md → docs/lanzou/`；
-     `quark-go/INTERFACE.md → docs/quark/`；README 全部并入根 README 后删除
-3. [ ] 新建 `go.mod`（go 1.26.4）并全量替换 import（4 条映射）：
-   - `github.com/langhuachuanzhi/alipan-go/alipan → .../pan-go/alipan`
-   - `github.com/langhuachuanshi/baidupan-go/baidu → .../pan-go/baidu`
-   - `github.com/langhuachuanshi/lanzou-go → .../pan-go/lanzou`
-   - `github.com/langhuachuanshi/quark-go/quark → .../pan-go/quark`
-   - 覆盖范围：所有示例源码、包注释示例、README/docs 中的代码块
-4. [ ] 根文件落位：`AGENTS.md`（☑ 已按 vibe-coding 公共模板 v1.0 实例化并提交，
-   迁移完成后原样生效）；`README.md`（总览：四模块导航 +
-   安装示例）；`TODO.md`；`.gitignore`（四份并集）；三份审查报告收编至
-   `docs/reviews/`（baidupan / lanzou / quark，alipan 待补）。
-   各模块目录另放模块级 `AGENTS.md`（内容取自四份旧模块 AGENTS 拆分归位，
-   只写"换个模块就会变"的内容）。
-5. [ ] 验证：`go build ./... && go vet ./... && go test ./...` 全过；
-   `grep` 确认无旧 import 残留；四个 example 子目录均可编译。
-6. [ ] 补 alipan 模块审查报告（沿用 P0-P2 模板），修复计划继承各模块
-   未完成项并汇入 TODO.md。
-7. [ ] 远端：GitHub 创建 `langhuachuanshi/pan-go`（可见性见待确认②），
-   push main。首个 tag（按日期版本号规则 `pan-go/v26.37.x`）**待用户明确
-   指示后再打**。
+2. [x] 结构重排（单独一次提交，纯 `git mv`，历史可追溯）：
+   - `alipan-go/alipan → alipan`
+   - `baidupan-go/baidu → baidu`
+   - `quark-go/quark → quark`
+   - `lanzou-go/*.go → lanzou/`，`_example` 随全量 example 删除
+   - 文档归位：`API.md、CHANGELOG.md → docs/lanzou/`；
+     `INTERFACE.md → docs/quark/`；三份审查报告 → `docs/reviews/`（旧 README/AGENTS 拆分归位）
+3. [x] 各模块 `go.mod` module 行改为 `github.com/langhuachuanshi/pan-go/<网盘>`，
+   全量替换 import（示例代码已随 example 删除；包注释与文档中的代码块已替换）；
+   根建 `go.work` 聚合四模块。
+4. [x] 根文件落位：`AGENTS.md`（切多模块结构）、`README.md`、`TODO.md`、
+   `.gitignore`（四份并集）；模块级 `AGENTS.md` ×4（概览/接口约定/特有规矩）。
+5. [x] 验证：逐模块 build / vet / test 全过（alipan、quark 无测试文件）；
+   全仓 grep 旧 module 路径清零。
+6. [ ] 补 alipan 模块审查报告（沿用 P0-P2 模板）——已入根 TODO。
+7. [ ] 远端：GitHub 创建 `langhuachuanshi/pan-go`（私有），push main。首个 tag
+   （按日期版本号规则 `pan-go/v26.37.x`）**待用户明确指示后再打**。
 8. [ ] 旧仓库收尾：四个旧仓库 README 顶部加"已迁移至 pan-go"说明后归档
-   （archive；旧地址仍可访问，lanzou 旧 tag 历史在那里可查）。
+   （archive；旧地址仍可访问，lanzou 旧 tag 历史在那里可查）——**待用户明确指示**。
 
 ## 风险与对策
 

@@ -7,31 +7,37 @@ pan-go：四个网盘的 Go SDK 统一仓库（monorepo）——阿里云盘（a
 ## 目录结构
 
 ```
-pan-go/
-├── go.mod            # 单 module（module github.com/langhuachuanshi/pan-go）
-├── alipan/           # 阿里云盘：主包 + auth/device/drive/file/invoker/share/types/user
-├── baidu/            # 百度网盘：主包 + auth/clouddl/download/file/management/share/upload/user/qrcode/...
-├── lanzou/           # 蓝奏云：根包平铺（client/account/file/folder/upload/download/...）
-├── quark/            # 夸克：主包 + auth/download/file/invoker/qrcode/share/types/upload
-├── example/          # 示例/实测脚本：example/<网盘>/...
+pan-go/                 # 多模块 monorepo：根目录无 go.mod，靠 go.work 聚合
+├── go.work             # 本地开发工作区（四个模块）
+├── alipan/             # 阿里云盘 module：go.mod + 主包（client/option/error）
+│                       #   + auth/device/drive/file/invoker/share/types/user
+├── baidu/              # 百度网盘 module：go.mod + 主包
+│                       #   + auth/clouddl/download/file/management/share/upload/user/qrcode/panhome/sign/types/invoker
+├── lanzou/             # 蓝奏云 module：go.mod + 根包平铺
+│                       #   （client/config/account/file/folder/upload/upload_stream/download/recycle/resolve/models/errors/doc）
+├── quark/              # 夸克 module：go.mod + 主包
+│                       #   + auth/download/file/invoker/qrcode/share/types/upload
 └── docs/
-    ├── plans/        # 开发/迁移计划
-    ├── reviews/      # 各模块代码审查报告
-    ├── lanzou/       # API.md、CHANGELOG.md
-    └── quark/        # INTERFACE.md（接口参考索引）
+    ├── plans/          # 开发/迁移计划
+    ├── reviews/        # 各模块代码审查报告
+    ├── lanzou/         # API.md、CHANGELOG.md
+    └── quark/          # INTERFACE.md（接口参考索引）
 ```
+
+每个模块：module 路径 `github.com/langhuachuanshi/pan-go/<网盘>`，模块根即主包。
 
 ## 常用命令
 
 ```bash
-go build ./... && go vet ./... && go test ./...   # 全仓库（含所有 example）
-# 联调实测按模块：example/<网盘>/ 下各脚本，需要对应网盘的 cookie/凭证环境变量
+go build all      # 仓库根：工作区全量构建（依赖 go.work）
+# 质量门（逐模块；go vet/test all 会连带第三方依赖自己的测试，不作门禁）
+for m in alipan baidu lanzou quark; do (cd $m && go vet ./... && go test ./...); done
 ```
 
 ## 项目约定
 
-- **模块隔离**：四个网盘目录互不 import，保持随时可拆分；跨模块共享的东西
-  放 invoker 思路各自实现，不建公共包。
+- **多模块隔离**：四个网盘各自独立 go.mod、独立发版（tag 加网盘前缀，如
+  `quark/v26.37.1`），互不 import；跨模块共享的思路各自实现 invoker 模式，不建公共包。
 - **实测文化**：接口行为以真机实测为准，结论写进提交信息、模块 AGENTS 与
   docs/；未实测的推断要标注"未验证"。
 - **凭据红线**：各网盘 cookie/密钥只走环境变量或本地文件，绝不入库。

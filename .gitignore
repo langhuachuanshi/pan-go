@@ -1,0 +1,44 @@
+# 构建产物 / 测试产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+dist/
+tmp/
+
+# 测试覆盖率
+*.cover
+coverage.txt
+coverage.html
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 敏感凭证 / 本地配置（含登录态，绝不提交）
+.env
+.env.*
+*.secret
+credentials.json
+token.json
+auth_code.txt
+*_cookie.txt
+cookie.json
+cookie.txt
+.quark/
+*.quark.json
+
+# 日志
+*.log
