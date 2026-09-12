@@ -28,6 +28,7 @@ type Config struct {
 	Timeout   time.Duration                    // 单请求超时，0=30s
 	Retries   int                              // 传输层错误重试次数（0=不重试；总尝试=Retries+1）
 	Logf      func(format string, args ...any) // 可选请求日志（方法/URL/状态码/耗时）
+	HTTPClient *http.Client                    // 自定义客户端（测试/代理用），nil=内置默认
 }
 
 // Body 请求体编码接口。现成实现：JSONBody / FormBody / RawBody。
@@ -113,8 +114,12 @@ func New(cfg Config) *Executor {
 	if ua == "" {
 		ua = defaultUA
 	}
+	hc := cfg.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Timeout: timeout}
+	}
 	return &Executor{
-		hc:      &http.Client{Timeout: timeout},
+		hc:      hc,
 		ua:      ua,
 		retries: cfg.Retries,
 		logf:    cfg.Logf,

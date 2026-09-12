@@ -1,14 +1,17 @@
 package lanzou
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/langhuachuanshi/pan-go/core/httpx"
 	"github.com/langhuachuanshi/pan-go/lanzou/account"
 	"github.com/langhuachuanshi/pan-go/lanzou/download"
 	"github.com/langhuachuanshi/pan-go/lanzou/file"
@@ -19,19 +22,20 @@ import (
 	"github.com/langhuachuanshi/pan-go/lanzou/upload"
 )
 
-// Client 蓝奏云客户端（实现 invoker.Invoker）。线程安全边界同 http.Client。
+// Client 蓝奏云客户端（实现 core/invoker + lanzou 方言扩展）。
 // 业务能力经 Account / Files / Folders / Upload / Download / Recycle / Resolve 访问器提供。
 type Client struct {
-	httpClient  *http.Client
+	exec        *httpx.Executor
+	hc          *http.Client // 自定义或内置；exec 与之共享
+	timeout     int
 	cookies     []*http.Cookie
 	logged      bool
-	maxsize     int                // 最大文件大小限制(字节)
-	timeout     int                // HTTP超时(秒)
-	maxDLCount  int                // 最大下载并发数
-	uploadDelay [2]int             // 上传延迟范围(ms)
-	challenge   *ChallengeConfig   // acw_sc__v2 挑战参数
-	uid         string             // 用户ID（用于API URL参数）
-	vei         string             // vei 参数（anti-CSRF token）
+	maxsize     int
+	maxDLCount  int
+	uploadDelay [2]int
+	challenge   *ChallengeConfig
+	uid         string
+	vei         string
 }
 
 // Option 函数式配置选项
@@ -41,21 +45,20 @@ type Option func(*Client)
 func WithTimeout(seconds int) Option {
 	return func(c *Client) {
 		c.timeout = seconds
-		c.httpClient.Timeout = time.Duration(seconds) * time.Second
+		c.hc.Timeout = time.Duration(seconds) * time.Second
 	}
 }
 
 // WithMaxSize 设置最大文件大小限制(字节)
 func WithMaxSize(size int) Option {
-	return func(c *Client) {
-		c.maxsize = size
-	}
+	return func(c *Client) { c.maxsize = size }
 }
 
 // WithHTTPClient 自定义 http.Client
 func WithHTTPClient(hc *http.Client) Option {
 	return func(c *Client) {
-		c.httpClient = hc
+		c.hc = hc
+		c.rebuildExec()
 	}
 }
 
@@ -70,13 +73,10 @@ func WithMaxDownloadCount(n int) Option {
 
 // WithUploadDelay 设置上传延迟范围(毫秒)
 func WithUploadDelay(min, max int) Option {
-	return func(c *Client) {
-		c.uploadDelay = [2]int{min, max}
-	}
+	return func(c *Client) { c.uploadDelay = [2]int{min, max} }
 }
 
-// WithChallengeConfig 自定义 acw_sc__v2 挑战参数
-// 当蓝奏云更换JS混淆时，只需更新此配置即可适配
+// WithChallengeConfig 自定义 acw_sc__v2 挑战参数（蓝奏云换混淆时更新）
 func WithChallengeConfig(cfg *ChallengeConfig) Option {
 	return func(c *Client) {
 		if cfg != nil {
@@ -85,49 +85,54 @@ func WithChallengeConfig(cfg *ChallengeConfig) Option {
 	}
 }
 
-// NewClient 创建新的蓝奏云客户端
+// NewClient 创建蓝奏云客户端
 func NewClient(opts ...Option) *Client {
 	c := &Client{
-		httpClient: &http.Client{
+		hc: &http.Client{
 			Timeout: time.Duration(defaultTimeout) * time.Second,
-			// 禁用自动重定向，手动处理
+			// 禁用自动重定向，手动处理（登录中转跳转要吸收 Set-Cookie）
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
-		maxsize:     defaultMaxSize,
 		timeout:     defaultTimeout,
+		maxsize:     defaultMaxSize,
 		maxDLCount:  defaultMaxDLCount,
 		uploadDelay: [2]int{0, 0},
 		challenge:   DefaultChallengeConfig(),
-		vei:         defaultVei, // 默认占位值，initUIDAndVei() 会动态获取
+		vei:         defaultVei, // 占位值，initUIDAndVei 动态获取
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.rebuildExec()
 	return c
+}
+
+func (c *Client) rebuildExec() {
+	c.exec = httpx.New(httpx.Config{
+		UserAgent:  defaultUA,
+		Timeout:    time.Duration(c.timeout) * time.Second,
+		HTTPClient: c.hc,
+	})
 }
 
 // ===== 会话生命周期 =====
 
-// Login 登录蓝奏云帐号。
-// 蓝奏已把账号系统从 pc.woozooo.com/account/loginajax 迁到 accounts.woozooo.com：
-// 先过 acw_sc__v2 JS 反爬挑战拿会话 cookie，再 POST /accounts.php（task=uselogin）。
+// Login 登录蓝奏云帐号：过 acw_sc__v2 挑战 → POST accounts.woozooo.com（task=uselogin）
+// → 跟随 msgs 中转跳转链落登录态 cookie。
 func (c *Client) Login(user, pwd string) error {
-	// Step 1: 请求登录页并自动过 acw_sc__v2 挑战（复用直链解析同款挑战处理）
 	loginPageURL := baseURLAccount + "/accounts.php?action=login&ref=pc.woozooo.com"
 	if _, err := c.FetchPageWithChallenge(loginPageURL); err != nil {
 		return fmt.Errorf("login page request failed: %w", err)
 	}
 
-	// Step 2: POST 登录（字段与新版登录页 uselogin() 一致）
-	data := map[string]string{
+	body, _, err := c.post(baseURLAccount+pathAccountLogin, map[string]string{
 		"task":     "uselogin",
 		"username": user,
 		"password": pwd,
 		"ref":      "pc.woozooo.com",
-	}
-	body, _, err := c.Post(baseURLAccount+pathAccountLogin, data, map[string]string{
+	}, map[string]string{
 		"Referer":          loginPageURL,
 		"X-Requested-With": "XMLHttpRequest",
 	})
@@ -135,7 +140,7 @@ func (c *Client) Login(user, pwd string) error {
 		return fmt.Errorf("login request failed: %w", err)
 	}
 
-	// zt 前端用宽松比较（== '1'），可能为数字或字符串，用 interface{} 兼容两种
+	// zt 前端用宽松比较（== '1'），可能为数字或字符串
 	var resp struct {
 		Zt   interface{} `json:"zt"`
 		Msgs string      `json:"msgs"`
@@ -143,7 +148,6 @@ func (c *Client) Login(user, pwd string) error {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("%w: invalid login response: %s", ErrAPIError, string(body))
 	}
-
 	if !ztIsOne(resp.Zt) {
 		if strings.Contains(resp.Msgs, "密码") {
 			return ErrPasswordWrong
@@ -151,13 +155,11 @@ func (c *Client) Login(user, pwd string) error {
 		return fmt.Errorf("%w: login failed: %s", ErrAPIError, resp.Msgs)
 	}
 
-	// Step 3: 成功时 msgs 是中转鉴权跳转 URL，跟随它把最终登录态 cookie 落到 pc.woozooo.com 域
 	if strings.HasPrefix(resp.Msgs, "http") {
 		if err := c.followLoginRedirect(resp.Msgs); err != nil {
 			return fmt.Errorf("login redirect failed: %w", err)
 		}
 	}
-
 	c.logged = true
 	c.initUID()
 	return nil
@@ -165,7 +167,7 @@ func (c *Client) Login(user, pwd string) error {
 
 // Logout 登出并清空会话
 func (c *Client) Logout() error {
-	if _, _, err := c.Get(baseURLPC+pathLogout, nil); err != nil {
+	if _, _, err := c.get(baseURLPC+pathLogout, nil); err != nil {
 		return fmt.Errorf("logout request failed: %w", err)
 	}
 	c.logged = false
@@ -173,7 +175,7 @@ func (c *Client) Logout() error {
 	return nil
 }
 
-// ztIsOne 判断登录响应 zt 是否表示成功（兼容数字 1 与字符串 "1"）。
+// ztIsOne 登录响应 zt 是否表示成功（兼容数字 1 与字符串 "1"）。
 func ztIsOne(v interface{}) bool {
 	switch t := v.(type) {
 	case float64:
@@ -186,10 +188,10 @@ func ztIsOne(v interface{}) bool {
 	return false
 }
 
-// followLoginRedirect 跟随中转鉴权跳转链（最多 5 跳），用于把登录态 cookie 落在最终域。
+// followLoginRedirect 跟随中转鉴权跳转链（最多 5 跳），落登录态 cookie。
 func (c *Client) followLoginRedirect(next string) error {
 	for i := 0; i < 5 && strings.HasPrefix(next, "http"); i++ {
-		_, hdr, err := c.Get(next, nil)
+		_, hdr, err := c.get(next, nil)
 		if err != nil {
 			return err
 		}
@@ -215,13 +217,11 @@ func (c *Client) followLoginRedirect(next string) error {
 // SetTimeout 设置HTTP超时
 func (c *Client) SetTimeout(seconds int) {
 	c.timeout = seconds
-	c.httpClient.Timeout = time.Duration(seconds) * time.Second
+	c.hc.Timeout = time.Duration(seconds) * time.Second
 }
 
 // SetMaxSize 设置最大文件大小限制
-func (c *Client) SetMaxSize(size int) {
-	c.maxsize = size
-}
+func (c *Client) SetMaxSize(size int) { c.maxsize = size }
 
 // SetMaxDownloadCount 设置最大下载并发数
 func (c *Client) SetMaxDownloadCount(n int) {
@@ -231,22 +231,17 @@ func (c *Client) SetMaxDownloadCount(n int) {
 }
 
 // SetUploadDelay 设置上传延迟范围(毫秒)
-func (c *Client) SetUploadDelay(min, max int) {
-	c.uploadDelay = [2]int{min, max}
-}
+func (c *Client) SetUploadDelay(min, max int) { c.uploadDelay = [2]int{min, max} }
 
 // SetChallengeConfig 运行时更新 acw_sc__v2 挑战参数
-// 当蓝奏云更换JS混淆导致直链解析失败时，抓取新的置换表和密钥后调用此方法即可恢复
 func (c *Client) SetChallengeConfig(cfg *ChallengeConfig) {
 	if cfg != nil {
 		c.challenge = cfg
 	}
 }
 
-// GetChallengeConfig 获取当前挑战参数（可用于序列化保存）
-func (c *Client) GetChallengeConfig() *ChallengeConfig {
-	return c.challenge
-}
+// GetChallengeConfig 获取当前挑战参数
+func (c *Client) GetChallengeConfig() *ChallengeConfig { return c.challenge }
 
 // ===== cookie 会话 =====
 
@@ -266,9 +261,7 @@ func (c *Client) SetCookiesFromMap(cookieMap map[string]string) {
 	c.logged = true
 }
 
-// GetCookieString 导出当前会话的 cookie（"k1=v1; k2=v2" 单行格式）。
-// 账号密码 Login 或注入浏览器 Cookie 后，调用方可用它把会话持久化，
-// 下次免登直接 SetCookiesFromMap 恢复。
+// GetCookieString 导出当前会话 cookie（"k1=v1; k2=v2"），可持久化后 SetCookiesFromMap 免登恢复。
 func (c *Client) GetCookieString() string {
 	parts := make([]string, 0, len(c.cookies))
 	for _, ck := range c.cookies {
@@ -279,13 +272,13 @@ func (c *Client) GetCookieString() string {
 
 // ===== Service 访问器 =====
 
-// Account 返回账号信息服务（用户信息/帐号详情）。
+// Account 返回账号信息服务。
 func (c *Client) Account() *account.Service { return account.New(c) }
 
-// Files 返回文件服务（列表/分享链接/移动/删除/设密码）。
+// Files 返回文件服务。
 func (c *Client) Files() *file.Service { return file.New(c) }
 
-// Folders 返回文件夹服务（列表/创建/删除/移动）。
+// Folders 返回文件夹服务。
 func (c *Client) Folders() *folder.Service { return folder.New(c) }
 
 // Upload 返回上传服务。
@@ -300,16 +293,131 @@ func (c *Client) Recycle() *recycle.Service { return recycle.New(c) }
 // Resolve 返回直链解析服务（无需登录）。
 func (c *Client) Resolve() *resolve.Service { return resolve.New(c) }
 
-// ===== invoker.Invoker 实现 =====
+// ===== core/invoker 标准菜单实现 =====
+
+// Get 发 GET，成功时把 JSON 响应解到 out（nil 忽略）。
+func (c *Client) Get(ctx context.Context, path string, query map[string]string, out any) error {
+	if strings.Contains(path, "doupload.php") {
+		c.initUIDAndVei()
+	}
+	body, _, err := c.get(c.resolveURL(path, query), nil)
+	if err != nil {
+		return err
+	}
+	return c.decode(body, out)
+}
+
+// Post 发 POST：body 为 map[string]string 时走表单，否则 JSON。
+func (c *Client) Post(ctx context.Context, path string, body any, query map[string]string, out any) error {
+	if form, ok := body.(map[string]string); ok {
+		return c.PostForm(ctx, path, form, out)
+	}
+	if strings.Contains(path, "doupload.php") {
+		c.initUIDAndVei()
+	}
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  http.MethodPost,
+		URL:     c.resolveURL(path, query),
+		Body:    httpx.JSONBody{V: body},
+		Headers: c.baseHeaders(nil),
+	})
+	if err != nil {
+		return err
+	}
+	c.absorbCookies(resp.Header)
+	return c.decode(resp.Body, out)
+}
+
+// PostForm 发 POST 表单，成功时把 JSON 响应解到 out。
+func (c *Client) PostForm(ctx context.Context, path string, form map[string]string, out any) error {
+	return c.PostFormHeaders(ctx, path, form, nil, out)
+}
+
+// PostFormHeaders 带自定义头的表单 POST（lanZou 方言扩展）。
+func (c *Client) PostFormHeaders(ctx context.Context, path string, form map[string]string, headers map[string]string, out any) error {
+	if strings.Contains(path, "doupload.php") {
+		c.initUIDAndVei()
+	} else {
+		c.initUID()
+	}
+	body, _, err := c.post(c.resolveURL(path, nil), form, headers)
+	if err != nil {
+		return err
+	}
+	return c.decode(body, out)
+}
+
+// Multipart 单体 multipart 上传（html5up.php 方言头在此注入）。
+func (c *Client) Multipart(ctx context.Context, path string, form map[string]string, field, filename string, file io.Reader, out any) error {
+	body, _, err := c.postMultipart(c.resolveURL(path, nil), form, field, filename, file, map[string]string{
+		"Referer": baseURLPC + "/mydisk.php",
+		"Origin":  baseURLPC,
+	})
+	if err != nil {
+		return err
+	}
+	return c.decode(body, out)
+}
+
+// PostMultipartStream 流式 multipart 上传（方言扩展，进度回调）。
+func (c *Client) PostMultipartStream(ctx context.Context, path string, form map[string]string,
+	field, filename string, file io.Reader, fileSize int64,
+	onProgress func(uploaded, total int64), headers map[string]string, out any) error {
+
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+
+	writeErr := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		defer mw.Close()
+		for k, v := range form {
+			if err := mw.WriteField(k, v); err != nil {
+				writeErr <- err
+				return
+			}
+		}
+		part, err := mw.CreateFormFile(field, filename)
+		if err != nil {
+			writeErr <- err
+			return
+		}
+		if _, err := io.Copy(part, &progressReader{r: file, total: fileSize, onProgress: onProgress}); err != nil {
+			writeErr <- err
+			return
+		}
+		writeErr <- nil
+	}()
+
+	// 流式请求体走 RawBody：httpx 不缓冲，直接透传 pipe reader
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  http.MethodPost,
+		URL:     c.resolveURL(path, nil),
+		Body:    httpx.RawBody{MIME: mw.FormDataContentType(), R: pr},
+		Headers: c.baseHeaders(headers),
+	})
+	if err != nil {
+		return err
+	}
+	if err := <-writeErr; err != nil {
+		return fmt.Errorf("write multipart body failed: %w", err)
+	}
+	return c.decode(resp.Body, out)
+}
+
+// DownloadHeaders 直链下载所需鉴权头。
+func (c *Client) DownloadHeaders() map[string]string {
+	return map[string]string{
+		"User-Agent": defaultUA,
+		"Referer":    baseURLPC + "/",
+		"Cookie":     c.cookieHeader(),
+	}
+}
+
+// ===== lanzou 方言扩展实现 =====
 
 // LoggedIn 返回是否已登录。
 func (c *Client) LoggedIn() bool { return c.logged }
-
-// UserID 返回用户 ID（ylogin cookie，懒提取）。
-func (c *Client) UserID() string {
-	c.initUID()
-	return c.uid
-}
 
 // Vei 返回 anti-CSRF token（懒初始化）。
 func (c *Client) Vei() string {
@@ -317,102 +425,60 @@ func (c *Client) Vei() string {
 	return c.vei
 }
 
-// TaskURL 返回 doupload.php 完整地址（带 uid），并懒初始化 uid/vei。
-func (c *Client) TaskURL() string {
-	c.initUIDAndVei()
-	return c.apiURL(pathTaskAPI)
+// UserID 返回用户 ID（ylogin cookie，懒提取）。
+func (c *Client) UserID() string {
+	c.initUID()
+	return c.uid
 }
 
-// UploadURL 返回 html5up.php 上传入口。
-func (c *Client) UploadURL() string { return baseURLPC + pathUpload }
-
-// AjaxmURL 返回 ajaxm.php 完整地址（带 uid）。
-func (c *Client) AjaxmURL() string { return c.apiURL(pathAjaxm) }
-
-// FetchPageWithChallenge 请求页面并自动处理 acw_sc__v2 JS 挑战（最多两轮）。
+// FetchPageWithChallenge 取页面 HTML，自动处理 acw_sc__v2 挑战（最多两轮）。
 func (c *Client) FetchPageWithChallenge(pageURL string) (string, error) {
-	body, _, err := c.get(pageURL, map[string]string{
-		"Referer": pageURL,
-	})
+	body, _, err := c.get(pageURL, map[string]string{"Referer": pageURL})
 	if err != nil {
 		return "", err
 	}
 	html := string(body)
-
-	// 检查是否为JS挑战页面
-	if isChallengePage(html) {
-		// 解出 acw_sc__v2 cookie
-		cookieVal, err := solveAcwScV2(html, c.challenge)
+	if !isChallengePage(html) {
+		return html, nil
+	}
+	cookieVal, err := solveAcwScV2(html, c.challenge)
+	if err != nil {
+		return "", fmt.Errorf("solve challenge failed: %w", err)
+	}
+	c.mergeCookies([]*http.Cookie{{Name: "acw_sc__v2", Value: cookieVal}})
+	body, _, err = c.get(pageURL, map[string]string{"Referer": pageURL})
+	if err != nil {
+		return "", err
+	}
+	html = string(body)
+	if isChallengePage(html) { // 有时需要两轮
+		cookieVal, err = solveAcwScV2(html, c.challenge)
 		if err != nil {
-			return "", fmt.Errorf("solve challenge failed: %w", err)
+			return "", fmt.Errorf("solve challenge round 2 failed: %w", err)
 		}
-
-		// 注入cookie并重新请求
-		c.mergeCookies([]*http.Cookie{{
-			Name:  "acw_sc__v2",
-			Value: cookieVal,
-		}})
-
-		body, _, err = c.get(pageURL, map[string]string{
-			"Referer": pageURL,
-		})
+		c.mergeCookies([]*http.Cookie{{Name: "acw_sc__v2", Value: cookieVal}})
+		body, _, err = c.get(pageURL, map[string]string{"Referer": pageURL})
 		if err != nil {
 			return "", err
 		}
 		html = string(body)
-
-		// 二次检查（有时需要两轮）
-		if isChallengePage(html) {
-			cookieVal, err = solveAcwScV2(html, c.challenge)
-			if err != nil {
-				return "", fmt.Errorf("solve challenge round 2 failed: %w", err)
-			}
-			c.mergeCookies([]*http.Cookie{{
-				Name:  "acw_sc__v2",
-				Value: cookieVal,
-			}})
-			body, _, err = c.get(pageURL, map[string]string{
-				"Referer": pageURL,
-			})
-			if err != nil {
-				return "", err
-			}
-			html = string(body)
-		}
 	}
-
 	return html, nil
 }
 
-// Get 发 GET 请求并注入会话 cookie。
-func (c *Client) Get(rawURL string, headers map[string]string) ([]byte, http.Header, error) {
-	return c.get(rawURL, headers)
-}
-
-// Post 发表单 POST 请求并注入会话 cookie。
-func (c *Client) Post(rawURL string, data map[string]string, headers map[string]string) ([]byte, http.Header, error) {
-	return c.post(rawURL, data, headers)
-}
-
-// PostMultipart 发 multipart POST（一次性载入内存）。
-func (c *Client) PostMultipart(rawURL string, fields map[string]string, fileField, fileName string, fileReader io.Reader, headers map[string]string) ([]byte, http.Header, error) {
-	return c.postMultipart(rawURL, fields, fileField, fileName, fileReader, headers)
-}
-
-// HTTPClient 返回底层客户端。
-func (c *Client) HTTPClient() *http.Client { return c.httpClient }
-
-// UserAgent 返回默认 UA。
-func (c *Client) UserAgent() string { return defaultUA }
-
-// MaxDownloadCount 返回下载并发上限。
-func (c *Client) MaxDownloadCount() int { return c.maxDLCount }
+// HTTPClient 返回底层客户端（大文件流式下载用）。
+func (c *Client) HTTPClient() *http.Client { return c.hc }
 
 // MaxSize 返回单文件大小上限（字节）。
 func (c *Client) MaxSize() int { return c.maxsize }
 
+// MaxDownloadCount 返回下载并发上限。
+func (c *Client) MaxDownloadCount() int { return c.maxDLCount }
+
 // UploadDelay 返回上传延迟范围（毫秒）。
 func (c *Client) UploadDelay() (minMs, maxMs int) { return c.uploadDelay[0], c.uploadDelay[1] }
 
-// 编译期保证 Client 实现 invoker.Invoker。
-var _ invoker.Invoker = (*Client)(nil)
+// 编译期保证 Client 实现core 标准菜单与本地方言接口。
+var (
+	_ invoker.Invoker = (*Client)(nil)
+)

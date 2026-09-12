@@ -3,6 +3,7 @@
 package account
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 
@@ -33,7 +34,7 @@ type Service struct{ inv invoker.Invoker }
 func New(inv invoker.Invoker) *Service { return &Service{inv: inv} }
 
 // Info 返回用户信息（取自会话 uid）。
-func (s *Service) Info() (*UserInfo, error) {
+func (s *Service) Info(ctx context.Context) (*UserInfo, error) {
 	if !s.inv.LoggedIn() {
 		return nil, invoker.ErrNotLoggedIn
 	}
@@ -41,15 +42,14 @@ func (s *Service) Info() (*UserInfo, error) {
 }
 
 // Detail 返回帐号详细信息（从个人中心页面提取用户名与容量）。
-func (s *Service) Detail() (*AccountInfo, error) {
+func (s *Service) Detail(ctx context.Context) (*AccountInfo, error) {
 	if !s.inv.LoggedIn() {
 		return nil, invoker.ErrNotLoggedIn
 	}
-	body, _, err := s.inv.Get(profileURL, nil)
+	html, err := s.inv.FetchPageWithChallenge(profileURL)
 	if err != nil {
 		return nil, fmt.Errorf("get account info failed: %w", err)
 	}
-	html := string(body)
 
 	// 从页面提取用户名
 	reName := regexp.MustCompile(`(\d{11,})`)

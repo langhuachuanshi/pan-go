@@ -9,6 +9,8 @@
 - **错误处理**：所有错误用 `errors.Is` 判断哨兵：`lanzou.ErrNotLoggedIn / ErrPasswordWrong / ErrFileExpired / ErrFileSizeLimit / ErrInvalidURL / ErrExtractFailed / ErrUploadFailed / ErrDownloadFailed / ErrAPIError`。
 - **业务入口**：`c.Resolve() / c.Account() / c.Files() / c.Folders() / c.Upload() / c.Download() / c.Recycle()`。
 - 登录登出是会话生命周期方法，在 Client 上：`c.Login / c.Logout`。
+- 所有业务方法首参为 `ctx context.Context`（与 pan-go 其他模块一致）。
+- HTTP 执行走 `pan-go/core`（httpx/invoker），本模块只保留 cookie 会话与挑战页方言。
 
 ---
 
@@ -18,12 +20,12 @@
 
 **方法名**：`GetDurlByURL`
 
-**方法签名**：`func (s *Service) GetDurlByURL(shareURL, pwd string) (string, error)`
+**方法签名**：`func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string (string, error)`
 
 **调用示例**：
 
 ```go
-durl, err := c.Resolve().GetDurlByURL("https://pan.lanzoul.com/xxxxx", "")
+durl, err := c.Resolve().GetDurlByURL(ctx, "https://pan.lanzoul.com/xxxxx", "")
 ```
 
 **参数说明**：
@@ -43,12 +45,12 @@ durl, err := c.Resolve().GetDurlByURL("https://pan.lanzoul.com/xxxxx", "")
 
 **方法名**：`GetFileInfo`
 
-**方法签名**：`func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error)`
+**方法签名**：`func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string (*FileDetail, error)`
 
 **调用示例**：
 
 ```go
-detail, err := c.Resolve().GetFileInfo("https://pan.lanzoul.com/xxxxx", "pwd")
+detail, err := c.Resolve().GetFileInfo(ctx, "https://pan.lanzoul.com/xxxxx", "pwd")
 fmt.Println(detail.NameAll, detail.Size, detail.DURL)
 ```
 
@@ -111,13 +113,13 @@ err := c.Login("user", "pass")
 
 **方法名**：`Info` / `Detail`
 
-**方法签名**：`func (s *Service) Info() (*UserInfo, error)`、`func (s *Service) Detail() (*AccountInfo, error)`
+**方法签名**：`func (s *Service) Info(ctx context.Context,  (*UserInfo, error)`、`func (s *Service) Detail(ctx context.Context,  (*AccountInfo, error)`
 
 **调用示例**：
 
 ```go
-u, _ := c.Account().Info()      // u.UserName
-a, _ := c.Account().Detail()    // a.TotalSize / a.UsedSize
+u, _ := c.Account().Info(ctx)      // u.UserName
+a, _ := c.Account().Detail(ctx)    // a.TotalSize / a.UsedSize
 ```
 
 **参数说明**：无参数。
@@ -136,12 +138,12 @@ a, _ := c.Account().Detail()    // a.TotalSize / a.UsedSize
 
 **方法名**：`List`
 
-**方法签名**：`func (s *Service) List(fid int) (*FileList, error)`
+**方法签名**：`func (s *Service) List(ctx context.Context, fid int (*FileList, error)`
 
 **调用示例**：
 
 ```go
-files, err := c.Files().List(-1) // 根目录传 -1
+files, err := c.Files().List(ctx, -1) // 根目录传 -1
 ```
 
 **参数说明**：
@@ -160,12 +162,12 @@ files, err := c.Files().List(-1) // 根目录传 -1
 
 **方法名**：`ShareURL`
 
-**方法签名**：`func (s *Service) ShareURL(fileID string) (*FileShareInfo, error)`
+**方法签名**：`func (s *Service) ShareURL(ctx context.Context, fileID string (*FileShareInfo, error)`
 
 **调用示例**：
 
 ```go
-info, _ := c.Files().ShareURL(fileID)
+info, _ := c.Files().ShareURL(ctx, fileID)
 share := info.IsNewd + "/" + info.FID // 完整分享链接
 ```
 
@@ -204,7 +206,7 @@ share := info.IsNewd + "/" + info.FID // 完整分享链接
 
 **方法名**：`Stream`
 
-**方法签名**：`func (s *Service) Stream(filePath string, fid int, onProgress func(uploaded, total int64), desc ...string) (*UploadResult, error)`
+**方法签名**：`func (s *Service) Stream(ctx context.Context, filePath string, fid int, onProgress func(uploaded, total int64, desc ...string) (*UploadResult, error)`
 
 **调用示例**：
 

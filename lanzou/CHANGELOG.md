@@ -9,7 +9,8 @@
 - 仓库并入 pan-go 多模块统一仓库，import 路径变更为
   `github.com/langhuachuanshi/pan-go/lanzou`（破坏性）
 - 模块重构为 invoker + Service 子包结构（account/file/folder/upload/download/recycle/resolve），
-  调用方式改为 `c.Files().List()` 风格（破坏性）；哨兵错误与挑战参数用法不变
+  调用方式改为 `c.Files().List(ctx, ...)` 风格，业务方法统一带 ctx（破坏性）；
+  HTTP 执行迁移到 `pan-go/core`（httpx/invoker），哨兵错误与挑战参数用法不变
 
 ## [0.3.2] - 2026-09-12
 

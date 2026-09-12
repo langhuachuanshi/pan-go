@@ -2,7 +2,7 @@
 package resolve
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -30,23 +30,23 @@ var lanzouDomains = []string{
 // FileDetail 文件详情（含直链）
 type FileDetail struct {
 	FileID      string `json:"file_id"`
-	NameAll     string `json:"name_all"`   // 文件名
-	Size        string `json:"size"`       // 文件大小
-	UploadTime  string `json:"time"`       // 上传时间
-	DownloadURL string `json:"url"`        // 分享链接
-	DURL        string `json:"durl"`       // 直链
-	Description string `json:"des"`        // 描述
+	NameAll     string `json:"name_all"` // 文件名
+	Size        string `json:"size"`     // 文件大小
+	UploadTime  string `json:"time"`     // 上传时间
+	DownloadURL string `json:"url"`      // 分享链接
+	DURL        string `json:"durl"`     // 直链
+	Description string `json:"des"`      // 描述
 	IsNewd      int    `json:"is_newd"`
 }
 
 // 页面解析正则
 var (
-	reWpSign        = regexp.MustCompile(`wp_sign\s*=\s*'([^']+)'`)
-	reIframeSrc     = regexp.MustCompile(`<iframe[^>]+src="(/fn\?[^"]+)"`)
-	reFid           = regexp.MustCompile(`var\s+fid\s*=\s*(\d+)`)
-	reTitle         = regexp.MustCompile(`<title>([^<]+)</title>`)
-	reFileSizeDesc  = regexp.MustCompile(`文件大小[：:]\s*([^<\s]+(?:\s*[A-Za-z]+)?)`)
-	reFileSizeMeta  = regexp.MustCompile(`文件大小[：:]\s*(\d+\.?\d*\s*[A-Za-z]+)`)
+	reWpSign       = regexp.MustCompile(`wp_sign\s*=\s*'([^']+)'`)
+	reIframeSrc    = regexp.MustCompile(`<iframe[^>]+src="(/fn\?[^"]+)"`)
+	reFid          = regexp.MustCompile(`var\s+fid\s*=\s*(\d+)`)
+	reTitle        = regexp.MustCompile(`<title>([^<]+)</title>`)
+	reFileSizeDesc = regexp.MustCompile(`文件大小[：:]\s*([^<\s]+(?:\s*[A-Za-z]+)?)`)
+	reFileSizeMeta = regexp.MustCompile(`文件大小[：:]\s*(\d+\.?\d*\s*[A-Za-z]+)`)
 )
 
 // pageData 分享主页解析结果
@@ -69,7 +69,6 @@ type ajaxmResp struct {
 	Zt   int    `json:"zt"`
 	Dom  string `json:"dom"`
 	Url  string `json:"url"`
-	Inf  json.RawMessage `json:"inf"`
 	Mess string `json:"mess"`
 }
 
@@ -81,7 +80,7 @@ func New(inv invoker.Invoker) *Service { return &Service{inv: inv} }
 
 // GetDurlByURL 通过分享链接获取直链（无需登录）。
 // shareURL: 蓝奏云分享链接, pwd: 访问密码（可空）。
-func (s *Service) GetDurlByURL(shareURL, pwd string) (string, error) {
+func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string) (string, error) {
 	shareURL = normalizeURL(shareURL)
 	if !isLanzouURL(shareURL) {
 		return "", invoker.ErrInvalidURL
@@ -112,18 +111,18 @@ func (s *Service) GetDurlByURL(shareURL, pwd string) (string, error) {
 	}
 
 	// Step 4: POST ajaxm.php 获取直链
-	return s.requestDownloadURL(shareURL, iframe, page.Fid, pwd)
+	return s.requestDownloadURL(ctx, shareURL, iframe, page.Fid, pwd)
 }
 
 // GetDurlByFolderURL 通过文件夹分享链接获取所有文件的直链。
-func (s *Service) GetDurlByFolderURL(folderURL, pwd string, subdir bool) ([]string, error) {
+func (s *Service) GetDurlByFolderURL(ctx context.Context, folderURL, pwd string, subdir bool) ([]string, error) {
 	folderURL = normalizeURL(folderURL)
 	if !isLanzouURL(folderURL) {
 		return nil, invoker.ErrInvalidURL
 	}
 
 	// 文件夹页面逻辑与单文件不同，先尝试直接解析
-	durl, err := s.GetDurlByURL(folderURL, pwd)
+	durl, err := s.GetDurlByURL(ctx, folderURL, pwd)
 	if err != nil {
 		return nil, err
 	}
@@ -132,24 +131,22 @@ func (s *Service) GetDurlByFolderURL(folderURL, pwd string, subdir bool) ([]stri
 
 // GetDurlByURLAndFolder 带文件夹参数的直链解析。
 // 注意：folderID 参数当前未使用（历史兼容），行为与 GetDurlByURL 一致。
-func (s *Service) GetDurlByURLAndFolder(shareURL, pwd, folderID string) (string, error) {
-	return s.GetDurlByURL(shareURL, pwd)
+func (s *Service) GetDurlByURLAndFolder(ctx context.Context, shareURL, pwd, folderID string) (string, error) {
+	return s.GetDurlByURL(ctx, shareURL, pwd)
 }
 
 // GetFileInfo 通过分享链接获取文件详细信息（含直链）。
-func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error) {
+func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string) (*FileDetail, error) {
 	shareURL = normalizeURL(shareURL)
 	if !isLanzouURL(shareURL) {
 		return nil, invoker.ErrInvalidURL
 	}
 
-	// Step 1: 请求分享页面
 	mainHTML, err := s.inv.FetchPageWithChallenge(shareURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch share page failed: %w", err)
 	}
 
-	// Step 2: 提取页面数据
 	page, err := extractPageData(mainHTML)
 	if err != nil {
 		return nil, fmt.Errorf("extract page data failed: %w", err)
@@ -161,7 +158,6 @@ func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error) {
 		DownloadURL: shareURL,
 	}
 
-	// Step 3: 请求iframe页面
 	iframeURL := "https://" + getBaseHost(shareURL) + page.Iframe
 	iframeHTML, err := s.inv.FetchPageWithChallenge(iframeURL)
 	if err != nil {
@@ -174,8 +170,7 @@ func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error) {
 	}
 	detail.FileID = fmt.Sprintf("%d", page.Fid)
 
-	// Step 4: 获取直链
-	durl, err := s.requestDownloadURL(shareURL, iframe, page.Fid, pwd)
+	durl, err := s.requestDownloadURL(ctx, shareURL, iframe, page.Fid, pwd)
 	if err != nil {
 		return detail, nil // 返回部分信息
 	}
@@ -185,14 +180,14 @@ func (s *Service) GetFileInfo(shareURL, pwd string) (*FileDetail, error) {
 }
 
 // FileInfoByURL 兼容别名，等价于 GetFileInfo。
-func (s *Service) FileInfoByURL(shareURL, pwd string) (*FileDetail, error) {
-	return s.GetFileInfo(shareURL, pwd)
+func (s *Service) FileInfoByURL(ctx context.Context, shareURL, pwd string) (*FileDetail, error) {
+	return s.GetFileInfo(ctx, shareURL, pwd)
 }
 
 // ===== 内部实现 =====
 
-// requestDownloadURL POST ajaxm.php 获取真实下载链接
-func (s *Service) requestDownloadURL(referer string, iframe *iframeData, fid int, pwd string) (string, error) {
+// requestDownloadURL POST ajaxm.php 获取真实下载链接。
+func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe *iframeData, fid int, pwd string) (string, error) {
 	ajaxmURL := "https://" + getBaseHost(referer) + iframe.AjaxmURL
 
 	data := map[string]string{
@@ -208,17 +203,13 @@ func (s *Service) requestDownloadURL(referer string, iframe *iframeData, fid int
 		data["p"] = pwd
 	}
 
-	body, _, err := s.inv.Post(ajaxmURL, data, map[string]string{
+	var resp ajaxmResp
+	err := s.inv.PostFormHeaders(ctx, ajaxmURL, data, map[string]string{
 		"Referer":          referer,
 		"X-Requested-With": "XMLHttpRequest",
-	})
+	}, &resp)
 	if err != nil {
 		return "", fmt.Errorf("ajaxm request failed: %w", err)
-	}
-
-	var resp ajaxmResp
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("%w: invalid ajaxm response: %s", invoker.ErrAPIError, string(body))
 	}
 
 	if resp.Zt != 1 {

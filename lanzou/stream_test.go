@@ -1,12 +1,15 @@
 package lanzou
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/langhuachuanshi/pan-go/core/httpx"
 )
 
 // TestProgressReader 验证 progressReader 边读边累计、回调被正确触发。
@@ -94,8 +97,7 @@ func TestPostMultipartStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	c := &Client{httpClient: server.Client()}
-	// 覆盖 cookies（空也行，mock 不校验）
+	c := &Client{exec: httpx.New(httpx.Config{HTTPClient: server.Client()})}
 	c.cookies = []*http.Cookie{}
 
 	var maxUploaded int64
@@ -110,7 +112,12 @@ func TestPostMultipartStream(t *testing.T) {
 	fileContentStr := "stream upload test data " + strings.Repeat("x", 1000)
 	total := int64(len(fileContentStr))
 	fileContent := strings.NewReader(fileContentStr)
-	body, _, err := c.PostMultipartStream(
+	var resp struct {
+		Zt   int    `json:"zt"`
+		Info string `json:"info"`
+	}
+	err := c.PostMultipartStream(
+		context.Background(),
 		server.URL,
 		map[string]string{"task": "1"},
 		"upload_file",
@@ -119,12 +126,13 @@ func TestPostMultipartStream(t *testing.T) {
 		total,
 		onProgress,
 		nil,
+		&resp,
 	)
 	if err != nil {
 		t.Fatalf("PostMultipartStream 失败: %v", err)
 	}
-	if len(body) == 0 {
-		t.Fatal("响应 body 为空")
+	if resp.Zt != 1 {
+		t.Fatalf("响应解析不对: %+v", resp)
 	}
 
 	// 进度应被触发

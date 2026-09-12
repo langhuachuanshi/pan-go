@@ -2,7 +2,7 @@
 package recycle
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"strings"
 
@@ -32,22 +32,17 @@ func New(inv invoker.Invoker) *Service { return &Service{inv: inv} }
 
 // List 获取回收站文件列表。
 // page: 页码，从1开始。
-func (s *Service) List(page int) (*RecycleList, error) {
+func (s *Service) List(ctx context.Context, page int) (*RecycleList, error) {
 	if !s.inv.LoggedIn() {
 		return nil, invoker.ErrNotLoggedIn
 	}
-	data := map[string]string{
+	var resp RecycleList
+	err := s.inv.PostForm(ctx, invoker.PathTaskAPI, map[string]string{
 		"task": "7",
 		"pg":   fmt.Sprintf("%d", page),
-	}
-	body, _, err := s.inv.Post(s.inv.TaskURL(), data, nil)
+	}, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("get recycle list failed: %w", err)
-	}
-
-	var resp RecycleList
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("%w: invalid recycle list response", invoker.ErrAPIError)
 	}
 	if resp.Zt == 0 {
 		return nil, fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Info)
@@ -57,49 +52,65 @@ func (s *Service) List(page int) (*RecycleList, error) {
 
 // MoveToTrash 将文件移入回收站。
 // fids: 文件ID列表。
-func (s *Service) MoveToTrash(fids []string) error {
+func (s *Service) MoveToTrash(ctx context.Context, fids []string) error {
 	if !s.inv.LoggedIn() {
 		return invoker.ErrNotLoggedIn
 	}
-	data := map[string]string{
+	var resp struct {
+		Zt   int    `json:"zt"`
+		Info string `json:"info"`
+	}
+	err := s.inv.PostForm(ctx, invoker.PathTaskAPI, map[string]string{
 		"task":    "6",
 		"file_id": strings.Join(fids, "-"),
-	}
-	body, _, err := s.inv.Post(s.inv.TaskURL(), data, nil)
+	}, &resp)
 	if err != nil {
 		return fmt.Errorf("move to trash failed: %w", err)
 	}
-	return invoker.CheckZT(body)
+	if resp.Zt == 0 {
+		return fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Info)
+	}
+	return nil
 }
 
 // RestoreFiles 从回收站恢复文件。
 // fids: 文件ID列表。
-func (s *Service) RestoreFiles(fids []string) error {
+func (s *Service) RestoreFiles(ctx context.Context, fids []string) error {
 	if !s.inv.LoggedIn() {
 		return invoker.ErrNotLoggedIn
 	}
-	data := map[string]string{
+	var resp struct {
+		Zt   int    `json:"zt"`
+		Info string `json:"info"`
+	}
+	err := s.inv.PostForm(ctx, invoker.PathTaskAPI, map[string]string{
 		"task":    "8",
 		"file_id": strings.Join(fids, "-"),
-	}
-	body, _, err := s.inv.Post(s.inv.TaskURL(), data, nil)
+	}, &resp)
 	if err != nil {
 		return fmt.Errorf("restore files failed: %w", err)
 	}
-	return invoker.CheckZT(body)
+	if resp.Zt == 0 {
+		return fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Info)
+	}
+	return nil
 }
 
 // CleanRecycle 清空回收站。
-func (s *Service) CleanRecycle() error {
+func (s *Service) CleanRecycle(ctx context.Context) error {
 	if !s.inv.LoggedIn() {
 		return invoker.ErrNotLoggedIn
 	}
-	data := map[string]string{
-		"task": "9",
+	var resp struct {
+		Zt   int    `json:"zt"`
+		Info string `json:"info"`
 	}
-	body, _, err := s.inv.Post(s.inv.TaskURL(), data, nil)
+	err := s.inv.PostForm(ctx, invoker.PathTaskAPI, map[string]string{"task": "9"}, &resp)
 	if err != nil {
 		return fmt.Errorf("clean recycle failed: %w", err)
 	}
-	return invoker.CheckZT(body)
+	if resp.Zt == 0 {
+		return fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Info)
+	}
+	return nil
 }

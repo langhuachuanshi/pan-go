@@ -35,6 +35,8 @@ lanzou/            # module 根 = 主包 lanzou（会话生命周期 / 挑战求
 - **反爬挑战参数集中管理**：acw_sc__v2 置换表/XORKey 在 `ChallengeConfig`
   （config.go 的 `DefaultChallengeConfig`）。蓝奏云换 JS 混淆时只更新参数，不改解析逻辑。
 - **错误处理**：哨兵错误（ErrPasswordWrong 等）+ `errors.Is`；API 层错误包装为 ErrAPIError。
+- **HTTP 执行走 core**：主包 Client 实现 core/invoker 标准菜单（执行层=core/httpx），
+  本模块只保留 cookie 会话与挑战页方言；业务方法统一带 ctx。
 - **cookie 会话**：`SetCookies` / `SetCookiesFromMap` 注入，`GetCookieString` 导出持久化。
 - **上传**：优先 `Upload().Stream`（流式、进度回调）；`Upload().File` 仅向后兼容保留。
 
