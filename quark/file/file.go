@@ -82,8 +82,13 @@ func (s *Service) List(ctx context.Context, req *ListRequest) ([]*types.File, er
 			break
 		}
 		all = append(all, resp.Data.List...)
-		// 够了或没下一页。
-		if len(resp.Data.List) < size || len(all) >= resp.Data.Total {
+		// 结束判定：total 可能为 0（夸克部分场景不回传总数），此时
+		// len(all) >= total 恒真会把分页截断在第一页，只有 total>0 才可信；
+		// 否则靠短页（本页不足 size）或空页自然兜底。
+		if len(resp.Data.List) < size {
+			break
+		}
+		if resp.Data.Total > 0 && len(all) >= resp.Data.Total {
 			break
 		}
 		page++
