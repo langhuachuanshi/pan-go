@@ -59,9 +59,10 @@ type pageData struct {
 
 // iframeData iframe 页解析结果
 type iframeData struct {
-	WpSign   string
-	Fid      int
-	AjaxmURL string
+	WpSign      string
+	Fid         int
+	AjaxmURL    string
+	WebSignKey  string // websignkey/signs 动态值（新页面 var ajaxdata；空=旧页面硬编码 erCO）
 }
 
 // ajaxmResp ajaxm.php 响应
@@ -186,14 +187,20 @@ func (s *Service) FileInfoByURL(ctx context.Context, shareURL, pwd string) (*Fil
 
 // ===== 内部实现 =====
 
-// requestDownloadURL POST ajaxm.php 获取真实下载链接。
+// requestDownloadURL POST ajax 端点（旧 /ajaxm.php / 新 /ajaxfile.php）获取真实下载链接。
 func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe *iframeData, fid int, pwd string) (string, error) {
 	ajaxmURL := "https://" + getBaseHost(referer) + iframe.AjaxmURL
 
+	// websignkey/signs：新页面取 var ajaxdata 动态值；旧页面回退硬编码 erCO
+	webSignKey := iframe.WebSignKey
+	if webSignKey == "" {
+		webSignKey = "erCO"
+	}
+
 	data := map[string]string{
 		"action":     "downprocess",
-		"websignkey": "erCO",
-		"signs":      "erCO",
+		"websignkey": webSignKey,
+		"signs":      webSignKey,
 		"sign":       iframe.WpSign,
 		"websign":    "",
 		"kd":         "0",
@@ -256,7 +263,9 @@ func extractPageData(html string) (*pageData, error) {
 	return data, nil
 }
 
-// extractIframeData 解析 iframe 页（wp_sign / ajaxm 地址）
+// extractIframeData 解析 iframe 页（wp_sign / ajax 端点与参数）。
+// 2026-09-12 蓝奏改动（实测）：ajax 端点从 /ajaxm.php 变为 /ajaxfile.php?file=<id>，
+// 且 websignkey/signs 的值改为页面变量 ajaxdata（不再硬编码 erCO）。两种端点都兼容。
 func extractIframeData(html string) (*iframeData, error) {
 	data := &iframeData{}
 
@@ -266,10 +275,16 @@ func extractIframeData(html string) (*iframeData, error) {
 		return nil, fmt.Errorf("%w: wp_sign not found", invoker.ErrExtractFailed)
 	}
 
-	reAjaxm := regexp.MustCompile(`url\s*:\s*'(/ajaxm\.php\?file=(\d+))'`)
-	if m := reAjaxm.FindStringSubmatch(html); len(m) > 2 {
+	// ajax 端点：旧 /ajaxm.php?file=N 或新 /ajaxfile.php?file=N
+	reAjax := regexp.MustCompile(`url\s*:\s*'(/ajax(?:m|file)\.php\?file=(\d+))'`)
+	if m := reAjax.FindStringSubmatch(html); len(m) > 2 {
 		data.AjaxmURL = m[1]
 		fmt.Sscanf(m[2], "%d", &data.Fid)
+	}
+
+	// websignkey/signs 动态值：var ajaxdata = 'xxx'（旧页面无此变量则留空用旧硬编码）
+	if m := regexp.MustCompile(`var\s+ajaxdata\s*=\s*'([^']*)'`).FindStringSubmatch(html); len(m) > 1 {
+		data.WebSignKey = m[1]
 	}
 	return data, nil
 }
