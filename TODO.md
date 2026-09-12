@@ -20,7 +20,7 @@
 
 ## 已完成
 
-- [x] 首个 tag：core/alipan/baidu/lanzou/quark 各 v26.37.1（2026-09-12，用户确认）
+- [x] 首个 tag：core/alipan/baidu/lanzou/quark 各 v0.2637.1（2026-09-12，用户确认）
 
 - [x] core 统一架构：core 模块落地 + 四模块迁移完成（lanzou/quark/baidu 全嵌菜单，alipan 仅执行层，2026-09-12）
 
