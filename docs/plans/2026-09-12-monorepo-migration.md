@@ -10,7 +10,7 @@
   （`alipan/`、`baidu/`、`lanzou/`、`quark/`），module 路径
   `github.com/langhuachuanshi/pan-go/<网盘>`（import 两段，非三段冗余）；
   tag 加网盘前缀（`quark/v26.37.x`）。
-- **待确认② → 已按默认执行：pan-go 远端建为私有**（baidupan 历史并入，公开需重估）。
+- **待确认② → 终态：pan-go 已转公开**（2026-09-12 用户批准开源；公开前全历史凭据扫描 0 泄露）。
 - **追加决议：example 全部删除**（用户裁定：文档已足够详细，示例冗余）。
   连带关闭 quark 审查报告 P1-2（diag~diag5 调试脚本）与 lanzou 根 AGENTS 的
   example 相关项；根 README/AGENTS 的质量门命令改为逐模块 go vet/test。

@@ -45,7 +45,8 @@ for m in alipan baidu lanzou quark; do (cd $m && go vet ./... && go test ./...);
 - **凭据红线**：各网盘 cookie/密钥只走环境变量或本地文件，绝不入库。
 - 各网盘的协议细节、坑与红线见各模块 `AGENTS.md`（lanzou 的挑战参数、
   百度与 openapi 分支不混用、夸克先查 docs/quark/INTERFACE.md 等）。
-- baidupan 历史原为私有：本仓库保持 private，公开前需重新评估。
+- **仓库已公开**（2026-09-12 用户批准开源；公开前已完成全历史凭据扫描，0 泄露）。
+  此后凭据红线加倍重要：任何真实 cookie/token 绝不进提交。
 
 ## 注释
 
