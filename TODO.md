@@ -2,10 +2,8 @@
 
 ## 进行中
 
-- [ ] 旧仓库远端删库：token 缺 `delete_repo` scope，需先执行
-      `gh auth refresh -h github.com -s delete_repo`（浏览器授权）后再删
-      alipan-go / baidupan-go / lanzou-go / quark-go 四个远端仓库
-- [ ] 本地 `/d/Project/lanzou-go` 目录被其他程序占用，关闭占用程序后手动删除
+- [ ] 旧仓库远端删库：**等你授权**——运行 `gh auth refresh -h github.com -s delete_repo`
+      （浏览器登录确认）后告知，即删 alipan-go / baidupan-go / lanzou-go / quark-go
 
 ## 待办
 
@@ -28,5 +26,7 @@
 - [x] monorepo 迁移：subtree 历史合并 + 多模块重排 + import 替换 + example 删除（2026-09-12）
 - [x] lanzou 重构为 invoker + Service 子包结构，与另三模块统一（2026-09-12）
 - [x] 文档随模块走：四模块 README/CHANGELOG/API.md 三件套 + 模块 AGENTS（2026-09-12）
-- [x] 本地旧仓库清理：alipan-go / baidupan-go / quark-go 已删，lanzou-go 被占用待手动（2026-09-12）
+- [x] 仓库转公开（用户批准开源，公开前全历史凭据扫描 0 泄露）（2026-09-12）
+- [x] 本地旧仓库清理：alipan-go / baidupan-go / quark-go 已删；lanzou-go 内容已清空，
+      仅剩空壳目录被某程序工作目录占用，程序退出后可删（2026-09-12）
 - [x] api-docs 技能移入仓库（.agents/skills/api-docs/），全局份已移除（2026-09-12）
