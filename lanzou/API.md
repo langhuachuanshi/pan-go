@@ -20,7 +20,7 @@
 
 **方法名**：`GetDurlByURL`
 
-**方法签名**：`func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string (string, error)`
+**方法签名**：`func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string) (string, error)`
 
 **调用示例**：
 
@@ -45,7 +45,7 @@ durl, err := c.Resolve().GetDurlByURL(ctx, "https://pan.lanzoul.com/xxxxx", "")
 
 **方法名**：`GetFileInfo`
 
-**方法签名**：`func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string (*FileDetail, error)`
+**方法签名**：`func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string) (*FileDetail, error)`
 
 **调用示例**：
 
@@ -113,7 +113,7 @@ err := c.Login("user", "pass")
 
 **方法名**：`Info` / `Detail`
 
-**方法签名**：`func (s *Service) Info(ctx context.Context,  (*UserInfo, error)`、`func (s *Service) Detail(ctx context.Context,  (*AccountInfo, error)`
+**方法签名**：`func (s *Service) Info(ctx context.Context) (*UserInfo, error)`、`func (s *Service) Detail(ctx context.Context) (*AccountInfo, error)`
 
 **调用示例**：
 
@@ -138,7 +138,7 @@ a, _ := c.Account().Detail(ctx)    // a.TotalSize / a.UsedSize
 
 **方法名**：`List`
 
-**方法签名**：`func (s *Service) List(ctx context.Context, fid int (*FileList, error)`
+**方法签名**：`func (s *Service) List(ctx context.Context, fid int) (*FileList, error)`
 
 **调用示例**：
 
@@ -162,7 +162,7 @@ files, err := c.Files().List(ctx, -1) // 根目录传 -1
 
 **方法名**：`ShareURL`
 
-**方法签名**：`func (s *Service) ShareURL(ctx context.Context, fileID string (*FileShareInfo, error)`
+**方法签名**：`func (s *Service) ShareURL(ctx context.Context, fileID string) (*FileShareInfo, error)`
 
 **调用示例**：
 
@@ -206,7 +206,7 @@ share := info.IsNewd + "/" + info.FID // 完整分享链接
 
 **方法名**：`Stream`
 
-**方法签名**：`func (s *Service) Stream(ctx context.Context, filePath string, fid int, onProgress func(uploaded, total int64, desc ...string) (*UploadResult, error)`
+**方法签名**：`func (s *Service) Stream(ctx context.Context, filePath string, fid int, onProgress func(uploaded, total int64), desc ...string (*UploadResult, error)`
 
 **调用示例**：
 
