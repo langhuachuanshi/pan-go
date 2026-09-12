@@ -119,22 +119,19 @@ func (s *Service) dirExistsInParent(ctx context.Context, parent, name string) (b
 	const pageSize = 1000
 	for {
 		// 通过 invoker 调 /api/list（management 包不便直接用 file.Service，会循环依赖）
-		data, _, err := s.inv.Get(ctx, "/api/list", map[string]string{
-			"dir":   parent,
-			"num":   strconv.Itoa(pageSize),
-			"order": "name",
-			"page":  strconv.Itoa(page),
-		})
-		if err != nil {
-			return false, err
-		}
 		var resp struct {
 			Errno int `json:"errno"`
 			List  []struct {
 				Path string `json:"path"`
 			} `json:"list"`
 		}
-		if err := json.Unmarshal(data, &resp); err != nil {
+		err := s.inv.Get(ctx, "/api/list", map[string]string{
+			"dir":   parent,
+			"num":   strconv.Itoa(pageSize),
+			"order": "name",
+			"page":  strconv.Itoa(page),
+		}, &resp)
+		if err != nil {
 			return false, err
 		}
 		if resp.Errno != 0 && resp.Errno != -9 { // -9=目录不存在（空目录），忽略
@@ -268,19 +265,16 @@ type RecycleFile struct {
 // RecycleList 获取回收站文件列表。
 // page: 页码，从 1 开始，每页 100 条。
 func (s *Service) RecycleList(ctx context.Context, page int) ([]*RecycleFile, error) {
-	data, _, err := s.inv.Get(ctx, "/api/recycle/list", map[string]string{
+	var resp struct {
+		Errno int            `json:"errno"`
+		List  []*RecycleFile `json:"list"`
+	}
+	err := s.inv.Get(ctx, "/api/recycle/list", map[string]string{
 		"num":  "100",
 		"page": strconv.Itoa(page),
-	})
+	}, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("获取回收站列表失败: %w", err)
-	}
-	var resp struct {
-		Errno int             `json:"errno"`
-		List  []*RecycleFile  `json:"list"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("解析回收站列表失败: %w", err)
 	}
 	if resp.Errno != 0 {
 		return nil, invoker.NewAPIError(resp.Errno, "获取回收站列表失败")

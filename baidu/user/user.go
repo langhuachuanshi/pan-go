@@ -9,7 +9,6 @@ package user
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,14 +46,6 @@ type UserInfo struct {
 // Quota 获取空间配额信息。
 // 接口：GET https://pan.baidu.com/api/quota?checkfree=1&checkexpire=1
 func (s *Service) Quota(ctx context.Context) (*QuotaInfo, error) {
-	data, _, err := s.inv.Get(ctx, "/api/quota", map[string]string{
-		"checkfree":   "1",
-		"checkexpire": "1",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("获取配额失败: %w", err)
-	}
-
 	var resp struct {
 		Errno  int   `json:"errno"`
 		Total  int64 `json:"total"`
@@ -62,8 +53,12 @@ func (s *Service) Quota(ctx context.Context) (*QuotaInfo, error) {
 		Free   int64 `json:"free"`
 		Expire bool  `json:"expire"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("解析配额响应失败: %w", err)
+	err := s.inv.Get(ctx, "/api/quota", map[string]string{
+		"checkfree":   "1",
+		"checkexpire": "1",
+	}, &resp)
+	if err != nil {
+		return nil, fmt.Errorf("获取配额失败: %w", err)
 	}
 	if resp.Errno != 0 {
 		return nil, invoker.NewAPIError(resp.Errno, "获取配额失败")

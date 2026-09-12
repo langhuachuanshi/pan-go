@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"testing"
 )
 
@@ -12,12 +13,21 @@ type fakeInvoker struct {
 	partSize int64 // 每片大小（用于断言）
 }
 
-func (f *fakeInvoker) Get(ctx context.Context, path string, params map[string]string) ([]byte, int, error) {
-	return nil, 0, nil
+func (f *fakeInvoker) Get(ctx context.Context, path string, query map[string]string, out any) error {
+	return nil
 }
 
-// PostForm 处理 precreate / create
-func (f *fakeInvoker) PostForm(ctx context.Context, path string, body map[string]string, params map[string]string) ([]byte, int, error) {
+// PostForm core 菜单表单（上传流程实际走 PostFormQuery）
+func (f *fakeInvoker) Post(ctx context.Context, path string, body any, query map[string]string, out any) error {
+	return nil
+}
+
+func (f *fakeInvoker) PostForm(ctx context.Context, path string, form map[string]string, out any) error {
+	return nil
+}
+
+// PostFormQuery 处理 precreate / create（body 与 query 分离）
+func (f *fakeInvoker) PostFormQuery(ctx context.Context, path string, body, params map[string]string, out any) error {
 	switch path {
 	case "/api/precreate":
 		// 返回 return_type=1（需要上传分片），block_list=[0,1,2]（全部分片待传）
@@ -27,15 +37,15 @@ func (f *fakeInvoker) PostForm(ctx context.Context, path string, body map[string
 			"return_type": 1,
 			"block_list":  []int{0, 1, 2},
 		})
-		return resp, 200, nil
+		return json.Unmarshal(resp, out)
 	case "/api/create":
 		resp, _ := json.Marshal(map[string]any{
 			"errno": 0,
 			"data":  map[string]any{"fs_id": 123, "path": "/test/big.bin"},
 		})
-		return resp, 200, nil
+		return json.Unmarshal(resp, out)
 	}
-	return nil, 0, nil
+	return nil
 }
 
 func (f *fakeInvoker) PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error) {
@@ -58,6 +68,14 @@ func (f *fakeInvoker) PostFormRaw(ctx context.Context, fullURL string, body map[
 func (f *fakeInvoker) PostMultipartForm(ctx context.Context, fullURL string, fields map[string]string) ([]byte, int, error) {
 	return nil, 0, nil
 }
+
+func (f *fakeInvoker) Multipart(ctx context.Context, path string, form map[string]string, field, filename string, file io.Reader, out any) error {
+	return nil
+}
+
+func (f *fakeInvoker) DownloadHeaders() map[string]string { return nil }
+
+func (f *fakeInvoker) HTTPClient() *http.Client { return http.DefaultClient }
 
 // TestUploadProgressCallback 验证 OnProgress 回调被正确触发：
 // - 次数 = 分片数

@@ -120,14 +120,9 @@ func (s *Service) ShareSet(ctx context.Context, paths []string, opt *ShareOption
 		"share_type":   "9",
 	}
 
-	data, _, err := s.inv.PostForm(ctx, "/share/pset", body, nil)
-	if err != nil {
-		return nil, fmt.Errorf("创建分享失败: %w", err)
-	}
-
 	var resp sharePSetResp
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("解析分享响应失败: %w", err)
+	if err := s.inv.PostForm(ctx, "/share/pset", body, &resp); err != nil {
+		return nil, fmt.Errorf("创建分享失败: %w", err)
 	}
 		if resp.Errno != 0 {
 			return nil, invoker.NewAPIError(resp.Errno, "创建分享失败")
@@ -153,14 +148,9 @@ func (s *Service) ShareCancel(ctx context.Context, shareIDs []int64) error {
 		"shareid_list": "[" + strings.Join(ids, ",") + "]",
 	}
 
-	data, _, err := s.inv.PostForm(ctx, "/share/cancel", body, nil)
-	if err != nil {
-		return fmt.Errorf("取消分享失败: %w", err)
-	}
-
 	var resp shareCancelResp
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return fmt.Errorf("解析取消分享响应失败: %w", err)
+	if err := s.inv.PostForm(ctx, "/share/cancel", body, &resp); err != nil {
+		return fmt.Errorf("取消分享失败: %w", err)
 	}
 	if resp.Errno != 0 {
 		return invoker.NewAPIError(resp.Errno, resp.Errmsg)

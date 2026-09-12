@@ -324,18 +324,16 @@ func (s *Service) CreateFile(ctx context.Context, path string, size int64, uploa
 		"rtype":      "3",
 	}
 
-	data, _, err := s.inv.PostForm(ctx, "/api/create", body, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	// /api/create 可能是嵌套结构 {errno, info:{...}} 也可能是扁平结构 {errno, fs_id, path, ...}
 	var base struct {
 		Errno int             `json:"errno"`
 		Info  json.RawMessage `json:"info"`
+		FsID  int64           `json:"fs_id"`
+		Path  string          `json:"path"`
+		Size  int64           `json:"size"`
 	}
-	if err := invoker.Decode(data, &base); err != nil {
-		return nil, fmt.Errorf("解析 create 响应失败: %w", err)
+	if err := s.inv.PostForm(ctx, "/api/create", body, &base); err != nil {
+		return nil, err
 	}
 	if base.Errno != 0 {
 		return nil, invoker.NewAPIError(base.Errno, errnoMsg(base.Errno))
@@ -349,9 +347,9 @@ func (s *Service) CreateFile(ctx context.Context, path string, size int64, uploa
 		return &f, nil
 	}
 	// 扁平格式 {errno, fs_id, path, size, ...}
-	var flat types.File
-	if err := json.Unmarshal(data, &flat); err != nil {
-		return nil, fmt.Errorf("解析 create 扁平响应失败: %w", err)
-	}
-	return &flat, nil
+	return &types.File{
+		FSID: base.FsID,
+		Path: base.Path,
+		Size: base.Size,
+	}, nil
 }

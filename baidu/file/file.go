@@ -216,19 +216,14 @@ func (s *Service) BatchMeta(ctx context.Context, fsids []int64) ([]*types.File, 
 		"dlink": "1",
 	}
 
-	data, _, err := s.inv.Get(ctx, "/api/filemetas", params)
-	if err != nil {
-		return nil, fmt.Errorf("获取元信息失败: %w", err)
-	}
-
 	// /api/filemetas 返回的字段类型与 /api/list 不完全一致
 	// category/size/isdir 等可能是字符串，用专门的结构体接收后转换
 	var resp struct {
 		Errno int            `json:"errno"`
 		Info  []*fileMetaRaw `json:"info"`
 	}
-	if err := invoker.Decode(data, &resp); err != nil {
-		return nil, fmt.Errorf("解析元信息失败: %w", err)
+	if err := s.inv.Get(ctx, "/api/filemetas", params, &resp); err != nil {
+		return nil, fmt.Errorf("获取元信息失败: %w", err)
 	}
 	if resp.Errno != 0 {
 		return nil, invoker.NewAPIError(resp.Errno, "获取元信息失败")

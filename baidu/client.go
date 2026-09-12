@@ -29,6 +29,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/langhuachuanshi/pan-go/baidu/auth"
 	"github.com/langhuachuanshi/pan-go/baidu/clouddl"
@@ -39,12 +40,14 @@ import (
 	"github.com/langhuachuanshi/pan-go/baidu/share"
 	"github.com/langhuachuanshi/pan-go/baidu/upload"
 	"github.com/langhuachuanshi/pan-go/baidu/user"
+	coreerrors "github.com/langhuachuanshi/pan-go/core/errors"
+	"github.com/langhuachuanshi/pan-go/core/httpx"
 )
 
 // 接口域名（实测：网页端接口全走 pan.baidu.com，pcs 仅用于分片上传域名）。
 const (
-	panBase = "https://pan.baidu.com"          // 网页端 API（/api/*）
-	pcsBase = "https://d.pcs.baidu.com"        // 分片上传域名（superfile2）
+	panBase = "https://pan.baidu.com"   // 网页端 API（/api/*）
+	pcsBase = "https://d.pcs.baidu.com" // 分片上传域名（superfile2）
 )
 
 // 通用 header。
@@ -62,7 +65,8 @@ type Config struct {
 // Client 百度网盘客户端。线程安全。
 type Client struct {
 	mgr  *auth.Manager
-	http *http.Client
+	http *http.Client    // 携带 BDUSS/STOKEN cookiejar
+	exec *httpx.Executor // core 执行器（与 c.http 共享客户端）
 }
 
 // New 创建 Client。BDUSS 必填，STOKEN 建议填（写操作需要）。
@@ -83,42 +87,139 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		cookies = append(cookies, &http.Cookie{Name: "STOKEN", Value: cfg.STOKEN, Domain: ".baidu.com"})
 	}
 	jar.SetCookies(panURL, cookies)
-	return &Client{
+	c := &Client{
 		mgr:  auth.New(&auth.Config{BDUSS: cfg.BDUSS, STOKEN: cfg.STOKEN}),
-		http: &http.Client{Timeout: 60 * 1e9, Jar: jar}, // 60s
-	}, nil
+		http: &http.Client{Timeout: 60 * time.Second, Jar: jar}, // 60s
+	}
+	c.exec = httpx.New(httpx.Config{UserAgent: userAgent, HTTPClient: c.http})
+	return c, nil
 }
 
-// —— invoker.Invoker 实现 ——
+// —— core/invoker 标准菜单实现 ——
 
-// Get 发 GET 请求（list 用）。注入通用 query，BDUSS cookie 自动带，无需 bdstoken。
-// path 是相对 panBase 的路径（如 /api/list）。
-func (c *Client) Get(ctx context.Context, path string, params map[string]string) ([]byte, int, error) {
-	q := buildQuery(params, "")
-	fullURL := panBase + path + "?" + q.Encode()
-	return c.do(ctx, http.MethodGet, fullURL, nil, "")
+// Get 发 GET，成功时把 JSON 响应解到 out（nil 忽略）。
+// path 相对 panBase；通用 query + cookie 自动注入，无需 bdstoken。
+func (c *Client) Get(ctx context.Context, path string, query map[string]string, out any) error {
+	q := buildQuery(query, "")
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		URL:     panBase + path + "?" + q.Encode(),
+		Headers: c.baseHeaders(),
+	})
+	if err != nil {
+		return err
+	}
+	return c.decode(resp, out)
 }
 
-// PostForm 发 POST form 请求（写操作用）。注入通用 query + bdstoken，cookie 自动带。
-// path 相对 panBase。bdstoken 自动获取并注入（需配置 STOKEN）。
-func (c *Client) PostForm(ctx context.Context, path string, body map[string]string, params map[string]string) ([]byte, int, error) {
+// Post 发 POST：body 为 map[string]string 时走表单（等价 PostForm），否则 JSON。
+func (c *Client) Post(ctx context.Context, path string, body any, query map[string]string, out any) error {
+	if form, ok := body.(map[string]string); ok {
+		return c.PostFormQuery(ctx, path, form, query, out)
+	}
+	q := buildQuery(query, "")
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  http.MethodPost,
+		URL:     panBase + path + "?" + q.Encode(),
+		Body:    httpx.JSONBody{V: body},
+		Headers: c.baseHeaders(),
+	})
+	if err != nil {
+		return err
+	}
+	return c.decode(resp, out)
+}
+
+// PostForm 发 POST form（写操作：bdstoken 自动注入），成功时解 JSON 到 out。
+func (c *Client) PostForm(ctx context.Context, path string, form map[string]string, out any) error {
+	return c.PostFormQuery(ctx, path, form, nil, out)
+}
+
+// PostFormQuery POST form 且 body 与 query 分离（baidu 方言：/api/filemanager 的 opera 在 query）。
+func (c *Client) PostFormQuery(ctx context.Context, path string, body, params map[string]string, out any) error {
 	bdstoken, err := c.mgr.BDstoken(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取 bdstoken 失败: %w", err)
+		return fmt.Errorf("获取 bdstoken 失败: %w", err)
 	}
 	q := buildQuery(params, bdstoken)
-	fullURL := panBase + path + "?" + q.Encode()
 	form := url.Values{}
 	for k, v := range body {
 		form.Set(k, v)
 	}
-	return c.do(ctx, http.MethodPost, fullURL, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  http.MethodPost,
+		URL:     panBase + path + "?" + q.Encode(),
+		Body:    httpx.FormBody(body),
+		Headers: c.baseHeaders(),
+	})
+	_ = form
+	if err != nil {
+		return err
+	}
+	return c.decode(resp, out)
 }
 
-// PostMultipart 发 POST multipart 请求（仅分片上传用）。
-// baseURL 指定域名：分片上传传 pcsBase，其他传 ""（默认 panBase）。
-// path 是相对路径。先 buffer 出 body 带 Content-Length（百度不支持 chunked）。
-func (c *Client) PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, file []byte) ([]byte, int, error) {
+// Multipart 发 multipart 文件上传（contract 完整性实现；分片上传走方言 PostMultipart）。
+func (c *Client) Multipart(ctx context.Context, path string, form map[string]string, field, filename string, file io.Reader, out any) error {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range form {
+		if err := mw.WriteField(k, v); err != nil {
+			return err
+		}
+	}
+	fw, err := mw.CreateFormFile(field, filename)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(fw, file); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  http.MethodPost,
+		URL:     panBase + path,
+		Body:    httpx.RawBody{MIME: mw.FormDataContentType(), R: bytes.NewReader(buf.Bytes())},
+		Headers: c.baseHeaders(),
+	})
+	if err != nil {
+		return err
+	}
+	return c.decode(resp, out)
+}
+
+// DownloadHeaders 下载直链所需头（cookie 由 jar 携带，这里给 UA/Referer）。
+func (c *Client) DownloadHeaders() map[string]string {
+	return map[string]string{
+		"User-Agent": userAgent,
+		"Referer":    referer,
+	}
+}
+
+// baseHeaders 请求头（UA 由 exec 注入；cookie 由 jar 携带）。
+func (c *Client) baseHeaders() map[string]string {
+	return map[string]string{"Referer": referer}
+}
+
+// decode HTTP 状态判错 + JSON 解到 out（nil 忽略）。
+func (c *Client) decode(resp *httpx.Response, out any) error {
+	if resp.StatusCode >= 400 {
+		return coreerrors.New("baidu", 0, resp.StatusCode, truncateBody(resp.Body), coreerrors.KindOther)
+	}
+	return invoker.Decode(resp.Body, out)
+}
+
+func truncateBody(b []byte) string {
+	if len(b) > 200 {
+		return string(b[:200]) + "..."
+	}
+	return string(b)
+}
+
+// PostMultipart 分片上传（baidu 方言：superfile2 走 pcs 域名，params 进 query）。
+// baseURL 指定域名：分片上传传 pcsUploadBase，空=panBase。先 buffer 出 body 带 Content-Length（百度不支持 chunked）。
+func (c *Client) PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error) {
 	bdstoken, err := c.mgr.BDstoken(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("获取 bdstoken 失败: %w", err)
@@ -136,7 +237,7 @@ func (c *Client) PostMultipart(ctx context.Context, baseURL, path string, params
 	if err != nil {
 		return nil, 0, err
 	}
-	if _, err := fw.Write(file); err != nil {
+	if _, err := fw.Write(data); err != nil {
 		return nil, 0, err
 	}
 	mw.Close()
@@ -159,24 +260,22 @@ func buildQuery(params map[string]string, bdstoken string) url.Values {
 	return q
 }
 
-// do 执行请求。注入 Referer 和 UA。
+// do 执行请求（方言 Raw 系列共用；执行走 core/httpx，UA/Referer 注入）。
 func (c *Client) do(ctx context.Context, method, fullURL string, body io.Reader, contentType string) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)
+	var b httpx.Body
+	if body != nil {
+		b = httpx.RawBody{MIME: contentType, R: body}
+	}
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  method,
+		URL:     fullURL,
+		Body:    b,
+		Headers: map[string]string{"Referer": referer},
+	})
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Referer", referer)
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, err
+	return resp.Body, resp.StatusCode, nil
 }
 
 // —— 原始请求方法（不注入通用 query / bdstoken） ——

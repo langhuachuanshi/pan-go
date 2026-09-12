@@ -1,60 +1,51 @@
-// Package invoker 定义 panbaidu-go 各业务子包共享的 HTTP 调用接口与错误类型。
+// Package invoker 定义 baidu 业务子包依赖的调用接口与错误辅助。
 //
-// 设计同 quark-go：主包 Client 实现 Invoker，各业务子包依赖接口而非主包，
-// 避免循环依赖。
-//
-// 网页端（BDUSS 方案）的特点：
-//   - BDUSS + STOKEN cookie 鉴权，由 cookiejar 自动携带
-//   - 通用 query（channel=chunlei&web=1&app_id=250528&clienttype=0）由 client 自动注入
-//   - 写操作（PostForm/PostMultipart）的 bdstoken 由 client 自动注入
-//   - 所有接口走 pan.baidu.com，响应外层 {errno, ...}，errno==0 才成功
+// 接口 = core 标准菜单 + baidu 方言扩展（Raw 全 URL 系列、PCS 分片上传、body+query
+// 分离的 PostFormQuery）；实现方是主包 Client（执行走 core/httpx，cookie 由 jar 携带）。
+// 业务码（errno）判定留在业务子包，经 NewAPIError 构造统一语义错误。
 package invoker
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"net/http"
+
+	coreerrors "github.com/langhuachuanshi/pan-go/core/errors"
+	coreinvoker "github.com/langhuachuanshi/pan-go/core/invoker"
 )
 
-// APIError 百度业务错误。
-// 百度错误约定：errno != 0 即失败（errno==0 成功）。
-type APIError struct {
-	Errno   int    // 0=成功，非0=失败
-	Message string // 错误描述
-}
+// APIError 统一错误（coreerrors.APIError 别名）。
+type APIError = coreerrors.APIError
 
+// NewAPIError 构造 baidu 业务错误（errno 码表 → 语义 Kind：-6=登录态失效，其余 Other）。
 func NewAPIError(errno int, message string) *APIError {
-	return &APIError{Errno: errno, Message: message}
-}
-
-func (e *APIError) Error() string {
-	if e == nil {
-		return "<nil>"
+	kind := coreerrors.KindOther
+	if errno == -6 {
+		kind = coreerrors.KindAuth
 	}
-	return fmt.Sprintf("baidu: errno=%d message=%s", e.Errno, e.Message)
+	return coreerrors.New("baidu", errno, 200, message, kind)
 }
 
-// Invoker 各业务子包依赖的调用接口。
-// path 都是相对 pan.baidu.com 的路径（如 /api/list、/api/create）。
+// IsAuthError 登录态失效判定（coreerrors.IsAuth 别名）。
+func IsAuthError(err error) bool { return coreerrors.IsAuth(err) }
+
+// Invoker baidu 业务子包依赖的接口：core 标准菜单 + baidu 方言扩展。
 type Invoker interface {
-	// Get 发 GET 请求（list 用）。通用 query + cookie 自动注入，无需 bdstoken。
-	Get(ctx context.Context, path string, params map[string]string) ([]byte, int, error)
+	coreinvoker.Invoker
 
-	// PostForm 发 POST form 请求（写操作）。通用 query + cookie + bdstoken 自动注入。
-	PostForm(ctx context.Context, path string, body map[string]string, params map[string]string) ([]byte, int, error)
-
-	// PostMultipart 发 POST multipart 请求（仅分片上传用）。通用 query + cookie + bdstoken 自动注入。
-	PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error)
-
-	// GetRaw 发 GET 请求到完整 URL，不注入通用 query。用于特殊接口（如 share/record）。
+	// —— 方言扩展 ——
+	// GetRaw 发 GET 到完整 URL，不注入通用 query。用于 share/record 等特殊接口。
 	GetRaw(ctx context.Context, fullURL string) ([]byte, int, error)
-
-	// PostFormRaw 发 POST form 到完整 URL，不注入通用 query。用于 share、PCS 等接口。
+	// PostFormRaw 发 POST form 到完整 URL，不注入通用 query/bdstoken。用于 share、PCS 等接口。
 	PostFormRaw(ctx context.Context, fullURL string, body map[string]string) ([]byte, int, error)
-
 	// PostMultipartForm 发 POST multipart/form-data（字段模式，非文件上传）。
-	// 用于 PCS meta 等需要 multipart 但不上传文件的接口。
 	PostMultipartForm(ctx context.Context, fullURL string, fields map[string]string) ([]byte, int, error)
+	// PostMultipart 分片上传（superfile2 走 pcs 域名；params 进 query，data 为分片内容）。
+	PostMultipart(ctx context.Context, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte) ([]byte, int, error)
+	// PostFormQuery POST form 且 body 与 query 分离（/api/filemanager 的 opera 在 query）。
+	PostFormQuery(ctx context.Context, path string, body, params map[string]string, out any) error
+	// HTTPClient 返回内部客户端（携带 BDUSS jar；下载/PanHome 用）。
+	HTTPClient() *http.Client
 }
 
 // Decode 反序列化，空体不报错。
@@ -65,31 +56,17 @@ func Decode(data []byte, out any) error {
 	return json.Unmarshal(data, out)
 }
 
-// GetAndDecode GET + 反序列化。
+// GetAndDecode GET + 解码（core 菜单形态：判错/解码在实现方，调用方零改动）。
 func GetAndDecode(ctx context.Context, inv Invoker, path string, params map[string]string, out any) error {
-	data, _, err := inv.Get(ctx, path, params)
-	if err != nil {
-		return err
-	}
-	if out != nil {
-		return Decode(data, out)
-	}
-	return nil
+	return inv.Get(ctx, path, params, out)
 }
 
-// PostFormAndDecode POST form + 反序列化。
+// PostFormAndDecode POST form + 解码（body 与 query 分离，方言经 PostFormQuery）。
 func PostFormAndDecode(ctx context.Context, inv Invoker, path string, body, params map[string]string, out any) error {
-	data, _, err := inv.PostForm(ctx, path, body, params)
-	if err != nil {
-		return err
-	}
-	if out != nil {
-		return Decode(data, out)
-	}
-	return nil
+	return inv.PostFormQuery(ctx, path, body, params, out)
 }
 
-// PostMultipartAndDecode POST multipart + 反序列化。
+// PostMultipartAndDecode POST multipart + 解码（方言）。
 func PostMultipartAndDecode(ctx context.Context, inv Invoker, baseURL, path string, params map[string]string, fieldName, fileName string, data []byte, out any) error {
 	respData, _, err := inv.PostMultipart(ctx, baseURL, path, params, fieldName, fileName, data)
 	if err != nil {
