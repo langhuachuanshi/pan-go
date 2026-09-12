@@ -8,7 +8,8 @@ pan-go：四个网盘的 Go SDK 统一仓库（monorepo）——阿里云盘（a
 
 ```
 pan-go/                 # 多模块 monorepo：根目录无 go.mod，靠 go.work 聚合
-├── go.work             # 本地开发工作区（四个模块）
+├── go.work             # 本地开发工作区（core + 四个网盘模块）
+├── core/               # 公共基础层 module：httpx 执行器 / errors 统一语义 / invoker 菜单 / template 接入指南
 ├── alipan/             # 阿里云盘 module：go.mod + 主包（client/option/error）
 │                       #   + auth/device/drive/file/invoker/share/types/user
 ├── baidu/              # 百度网盘 module：go.mod + 主包

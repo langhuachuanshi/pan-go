@@ -8,6 +8,7 @@
 
 | 目录 | 网盘 | 鉴权模型 | 第三方依赖 | import 前缀 |
 |---|---|---|---|---|
+| [`core/`](./core) | 公共基础层（执行器/错误语义/菜单） | — | 零 | `github.com/langhuachuanshi/pan-go/core` |
 | [`alipan/`](./alipan) | 阿里云盘 | token（扫码 / refresh_token）+ secp256k1 设备签名 | 有（go-qrcode、x/text、secp256k1） | `github.com/langhuachuanshi/pan-go/alipan` |
 | [`baidu/`](./baidu) | 百度网盘 | BDUSS + STOKEN cookie（网页端抓包） | 零 | `github.com/langhuachuanshi/pan-go/baidu` |
 | [`lanzou/`](./lanzou) | 蓝奏云 | cookie + acw_sc__v2 反爬挑战 | 零 | `github.com/langhuachuanshi/pan-go/lanzou` |

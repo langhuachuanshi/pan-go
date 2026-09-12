@@ -1,6 +1,6 @@
 # 通用网盘基础模块（core）统一架构计划 · 定稿
 
-- 状态：**定稿待批准**（设计决策已由 agent 按用户委托定死，批准后按阶段执行）
+- 状态：**已执行完毕**（2026-09-12 用户批准后当日完成；遗留：alipan 语义映射二期、core 首个 tag）
 - 日期：2026-09-12（v2.1 定稿：吸收用户讨论意见——文件模型接口推迟，core 精简为 httpx/errors/invoker/template）
 - 决策人：用户委托 agent 设计，5 个决策点全部按"低风险、高收益"原则定死，见决议记录
 
@@ -14,6 +14,7 @@
 | 4 | 迁移顺序 | **lanzou 试点 → quark → baidu → alipan** | lanzou 刚重构完最干净；alipan 最复杂放最后。每模块独立提交，出问题只回滚该模块 |
 | 5 | 方法名统一 | **轻度对齐**：借迁移之机只对齐文件/上传/下载主入口命名，其余保持并记录差异 | 外部使用方（backend/workbench）还没切 pan-go，趁无人引用做轻对齐最便宜；强行 1:1 统一几十个方法=又一大轮破坏性变更 |
 | 6 | 文件模型接口 | **推迟**：本期从 core 移除 types/，等出现第一个真实跨网盘消费者再定义 | 用户指出正确：为不存在的消费者定接口是投机；Go 接口隐式满足，后定义零成本接入（缺的方法届时补转换即可） |
+| 7 | alipan 菜单嵌入 | **不嵌入**（执行层迁移照做） | alipan 是 POST-only 协议，方言 Post 与 core 菜单 Post 签名冲突无法共存；强行改名=全 API 破坏。其余三模块均嵌入 |
 
 ## 本期范围（做什么 / 不做什么）
 
@@ -145,20 +146,21 @@ func IsDenied(err error) bool
 
 ## 迁移阶段（批准后执行，每阶段独立提交独立验证）
 
-- [ ] **阶段 1：实现 core**（httpx/invoker/errors/types + 单测：httpx 用 httptest 覆盖
+- [x] **阶段 1：实现 core**（httpx/invoker/errors/types + 单测：httpx 用 httptest 覆盖
       GET/POST/Form/Multipart/重试/超时；errors 覆盖 Kind 判定）+ core 四件套文档
       验收：`cd core && go build/vet/test ./...` 全过
-- [ ] **阶段 2：lanzou 迁移（试点）**——删除 http.go 自有执行细节改调 httpx；主包实现
+- [x] **阶段 2：lanzou 迁移（试点）**——删除 http.go 自有执行细节改调 httpx；主包实现
       core/invoker（含挑战页扩展）；业务子包换统一接口；错误换 core/errors（lanzou.ErrXxx
       别名保留）；FileInfo 加 4 个模型方法；顺带对齐 Download().File/FileAuto 主入口名
       验收：build/vet/test 全过 + 现有单测不变绿
-- [ ] **阶段 3：quark 迁移**——同上；IsAuthError 平移为 core/errors 语义（保留别名）
+- [x] **阶段 3：quark 迁移**——同上；IsAuthError 平移为 core/errors 语义（保留别名）
       验收：同上（含分页三个单测不变绿）
-- [ ] **阶段 4：baidu 迁移**——同上（form/multipart 走 httpx Body 实现）
+- [x] **阶段 4：baidu 迁移**——同上（form/multipart 走 httpx Body 实现）
       验收：同上（3 个测试包不变绿）
-- [ ] **阶段 5：alipan 迁移**——同上（最复杂，token 刷新逻辑留在模块，只换执行层）
-      验收：同上
-- [ ] **阶段 6：收尾**——template/GUIDE.md 成稿；四模块 AGENTS 补"判错映射表"；
+- [x] **阶段 5：alipan 迁移**——执行层迁 core/httpx；因 Post 签名冲突不嵌入 core 菜单
+      （决议 7），Post* 方言与自有 APIError 保留，语义映射列二期
+      验收：build/vet 全过
+- [x] **阶段 6：收尾**——template/GUIDE.md 成稿；四模块 AGENTS 补"判错映射表"；
       根 README/TODO 更新；全量验证 + push（tag 仍等用户明确指令）
       验收：全模块 build/vet/test 绿；grep 确认四模块主包无重复 http.Client.Do
 

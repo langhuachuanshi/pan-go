@@ -82,6 +82,9 @@ func ParseAPIError(statusCode int, body []byte) *APIError {
 
 // Invoker 是各业务子包依赖的调用接口。主包 Client 实现它。
 //
+// 注意：alipan 是 POST-only 协议，方言 Post 与 core 菜单 Post 签名冲突，
+// 故本接口不嵌入 core 菜单（其余三模块均嵌入）；执行层已统一 core/httpx。
+//
 // 调用约定：
 //   - Post 发 POST JSON 到 hostAPI+path，自动注入 default_drive_id（若实现了该逻辑）。
 //   - 返回响应体字节和 HTTP 状态码；失败时 err 为 *APIError。

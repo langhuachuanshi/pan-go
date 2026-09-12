@@ -15,14 +15,14 @@
 package alipan
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/langhuachuanshi/pan-go/core/httpx"
 
 	"github.com/langhuachuanshi/pan-go/alipan/auth"
 	"github.com/langhuachuanshi/pan-go/alipan/drive"
@@ -45,7 +45,7 @@ const (
 type Client struct {
 	mu       sync.RWMutex
 	token    *types.Token
-	http     *http.Client
+	exec     *httpx.Executor // 执行层（pan-go/core/httpx）
 	deviceID string
 	config   clientConfig
 
@@ -76,7 +76,7 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 	}
 
 	c := &Client{
-		http: &http.Client{Timeout: 60 * time.Second},
+		exec: httpx.New(httpx.Config{UserAgent: userAgent, Timeout: 60 * time.Second}),
 		config: clientConfig{
 			name:           o.name,
 			configDir:      o.configDir,
@@ -211,43 +211,36 @@ func (c *Client) requestWithRetry(ctx context.Context, method, fullURL string, b
 }
 
 func (c *Client) doOnce(ctx context.Context, method, fullURL string, body any, withAuth bool, extraHeaders map[string]string) ([]byte, int, error) {
-	var reader io.Reader
+	var b httpx.Body
 	if body != nil {
-		b, err := marshalBody(body)
-		if err != nil {
-			return nil, 0, err
-		}
-		reader = bytes.NewReader(b)
+		b = httpx.JSONBody{V: body}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, reader)
-	if err != nil {
-		return nil, 0, err
+	headers := map[string]string{
+		"Referer":  "https://aliyundrive.com",
+		"x-canary": xCanary,
 	}
-	req.Header.Set("Referer", "https://aliyundrive.com")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("x-canary", xCanary)
 	if withAuth {
 		if at := c.AccessToken(); at != "" {
-			req.Header.Set("Authorization", at)
+			headers["Authorization"] = at
 		}
 		if dev := c.deviceID; dev != "" {
-			req.Header.Set("x-device-id", dev)
-			req.Header.Set("x-signature", xSignature)
+			headers["x-device-id"] = dev
+			headers["x-signature"] = xSignature
 		}
 	}
-	if method == http.MethodPost && reader != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
 	for k, v := range extraHeaders {
-		req.Header.Set(k, v)
+		headers[k] = v
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.exec.Do(ctx, &httpx.Request{
+		Method:  method,
+		URL:     fullURL,
+		Body:    b,
+		Headers: headers,
+	})
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	return data, resp.StatusCode, err
+	return resp.Body, resp.StatusCode, nil
 }
 
 // handleNonOK 处理非成功状态码。返回 nil 表示已修复可重试。

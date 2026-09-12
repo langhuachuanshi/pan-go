@@ -13,12 +13,14 @@
       import 路径 `.../quark-go/quark` → `.../pan-go/quark`，API 不变仅换路径，自动获得分页修复）
       ——**前置：打首个 tag**（外部项目 go get 嵌套模块需要 `quark/v26.x.y` 形式的 tag）
 - [ ] 补 alipan 模块代码审查报告（docs/reviews/2026-09-12-alipan.md）
-- [ ] 通用网盘基础模块（core）统一架构：计划已定稿（docs/plans/2026-09-12-core-architecture.md v2，5 个决策点已定），待批准后按 6 阶段执行
+- [ ] core 统一架构收尾二期：alipan 错误语义映射（字符串码表）、分片上传骨架（触发条件见计划决议 3）
 - [ ] 各模块审查报告 P1 / P2 修复项逐项落地（docs/reviews/2026-09-12-baidupan / lanzou / quark.md）
 - [ ] API.md 分批补全：alipan（方法最多）与 baidu 的长尾方法待续写
 - [ ] 首个 tag（pan-go/v26.37.x）：等用户明确指令，按发版流程执行
 
 ## 已完成
+
+- [x] core 统一架构：core 模块落地 + 四模块迁移完成（lanzou/quark/baidu 全嵌菜单，alipan 仅执行层，2026-09-12）
 
 - [x] 四仓库盘点、统一方案确定、公共规范体系落地（2026-09-12）
 - [x] monorepo 迁移：subtree 历史合并 + 多模块重排 + import 替换 + example 删除（2026-09-12）
