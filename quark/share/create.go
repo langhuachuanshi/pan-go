@@ -124,11 +124,11 @@ func (s *Service) Create(ctx context.Context, req *CreateRequest) (*types.Create
 					ShareID string `json:"share_id"`
 				} `json:"data"`
 			}
-			raw, _, err := s.inv.Get(ctx, "/task", map[string]string{
+			err := s.inv.Get(ctx, "/task", map[string]string{
 				"task_id":     r1.Data.TaskID,
 				"retry_index": strconv.Itoa(i),
-			}, nil)
-			if err == nil && invoker.Decode(raw, &rt) == nil && rt.Data.ShareID != "" {
+			}, &rt)
+			if err == nil && rt.Data.ShareID != "" {
 				shareID = rt.Data.ShareID
 				break
 			}

@@ -2,31 +2,43 @@ package file
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/langhuachuanshi/pan-go/quark/invoker"
 )
 
-// fakeInvoker 以 canned 页响应 List 请求，记录每页的 _page 参数。
+// fakeInvoker 以 canned 页响应 Get，记录每页的 _page 参数（实现 core 标准菜单）。
 type fakeInvoker struct {
-	pages    []string // 第 n 次调用返回的 JSON
-	gotPages []string // 收到的 _page 值序列
+	pages    []string
+	gotPages []string
 }
 
-func (f *fakeInvoker) Get(ctx context.Context, path string, params map[string]string, headers map[string]string) ([]byte, int, error) {
-	f.gotPages = append(f.gotPages, params["_page"])
+func (f *fakeInvoker) Get(ctx context.Context, path string, query map[string]string, out any) error {
+	f.gotPages = append(f.gotPages, query["_page"])
 	if len(f.gotPages) > len(f.pages) {
-		return nil, 0, errors.New("no more canned pages")
+		return errors.New("no more canned pages")
 	}
-	b := f.pages[len(f.gotPages)-1]
-	return []byte(b), 200, nil
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal([]byte(f.pages[len(f.gotPages)-1]), out)
 }
 
-func (f *fakeInvoker) Post(ctx context.Context, path string, body any, params map[string]string, headers map[string]string) ([]byte, int, error) {
-	return nil, 0, errors.New("not used")
+func (f *fakeInvoker) Post(ctx context.Context, path string, body any, query map[string]string, out any) error {
+	return errors.New("not used")
+}
+
+func (f *fakeInvoker) PostForm(ctx context.Context, path string, form map[string]string, out any) error {
+	return errors.New("not used")
+}
+
+func (f *fakeInvoker) Multipart(ctx context.Context, path string, form map[string]string, field, filename string, file io.Reader, out any) error {
+	return errors.New("not used")
 }
 
 func (f *fakeInvoker) DownloadHeaders() map[string]string { return nil }

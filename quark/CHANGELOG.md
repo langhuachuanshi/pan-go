@@ -12,3 +12,6 @@
 
 - 仓库并入 pan-go 多模块统一仓库，import 路径变更为
   `github.com/langhuachuanshi/pan-go/quark`（破坏性）
+- HTTP 执行迁移到 `pan-go/core`（httpx/invoker 标准菜单）；错误统一 coreerrors
+  语义（31001/31003→Auth、41013→RateLimited、31005→NotFound），`IsAuthError`
+  兼容别名保留，对外行为不变
