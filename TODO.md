@@ -2,8 +2,7 @@
 
 ## 进行中
 
-- [ ] 旧仓库远端删库：**等你授权**——运行 `gh auth refresh -h github.com -s delete_repo`
-      （浏览器登录确认）后告知，即删 alipan-go / baidupan-go / lanzou-go / quark-go
+- [ ] backend / workbench 切换 pan-go@v0.2637.1（import 路径替换即可，分页修复自动到手）
 
 ## 待办
 
@@ -17,6 +16,8 @@
 
 
 ## 已完成
+
+- [x] 远端旧仓库删除：alipan-go / baidupan-go / lanzou-go / quark-go 已从 GitHub 移除（2026-09-12）
 
 - [x] 首个 tag：core/alipan/baidu/lanzou/quark 各 v0.2637.1（2026-09-12，用户确认）
 
