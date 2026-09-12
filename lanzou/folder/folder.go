@@ -3,6 +3,7 @@ package folder
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,10 +19,12 @@ type FolderInfo struct {
 	IsLock     string `json:"is_lock"`    // 锁定
 }
 
-// FolderList 文件夹列表响应
+// FolderList 文件夹列表响应。
+// Info 用 RawMessage：成功时实测为 []（数组），失败时是错误文本（string）——
+// 定型 string 会在成功场景反序列化失败（2026-09-12 实测 task=47 返回 "info":[]）。
 type FolderList struct {
 	Zt   int             `json:"zt"`
-	Info string          `json:"info"`
+	Info json.RawMessage `json:"info"`
 	Text []*FolderInfo   `json:"text"`
 }
 

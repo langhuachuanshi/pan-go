@@ -2,6 +2,7 @@
 package recycle
 
 import (
+	"encoding/json"
 	"context"
 	"fmt"
 	"strings"
@@ -9,10 +10,12 @@ import (
 	"github.com/langhuachuanshi/pan-go/lanzou/invoker"
 )
 
-// RecycleList 回收站列表响应
+// RecycleList 回收站列表响应。
+// Info 用 RawMessage：蓝奏各 task 的 info 成功时可能是 []（数组）而非 string，
+// 定型 string 会反序列化失败（同 FolderList，2026-09-12 实测）。
 type RecycleList struct {
 	Zt   int             `json:"zt"`
-	Info string          `json:"info"`
+	Info json.RawMessage `json:"info"`
 	Text []*RecycledFile `json:"text"`
 }
 
