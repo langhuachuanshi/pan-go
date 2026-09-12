@@ -9,6 +9,9 @@
 
 ## 待办
 
+- [ ] backend / workbench 等使用方统一切换到 pan-go 模块（替换旧 quark-go 依赖；
+      import 路径 `.../quark-go/quark` → `.../pan-go/quark`，API 不变仅换路径，自动获得分页修复）
+      ——**前置：打首个 tag**（外部项目 go get 嵌套模块需要 `quark/v26.x.y` 形式的 tag）
 - [ ] 补 alipan 模块代码审查报告（docs/reviews/2026-09-12-alipan.md）
 - [ ] 通用网盘基础模块（core）统一架构：计划已落 docs/plans/2026-09-12-core-architecture.md，待讨论批准后执行
 - [ ] 各模块审查报告 P1 / P2 修复项逐项落地（docs/reviews/2026-09-12-baidupan / lanzou / quark.md）
