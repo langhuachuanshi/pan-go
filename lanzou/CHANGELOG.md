@@ -2,6 +2,20 @@
 
 记录 lanzou 模块的全部对外变更；条目与 tag 一一对应，先补条目后打 tag。
 
+## [0.2645.2] - 2026-11-02
+
+### 修复
+
+- 直链解析适配蓝奏新页面：ajax 端点改成绝对地址（`https://apifile.woozooo.com/ajaxfile.php` /
+  `https://apifile.lanzouw.com/ajaxfile.php`），页面新增 `kdns` 参数；旧相对端点继续兼容，双端点逐个重试
+- 下载直链改走浏览器特征请求：补 `Accept` / `Accept-Language` 头、不带登录 cookie（带登录态会被风控拦成
+  「网络异常」验证页），并跟随 302 的 `Location` 取真实 CDN 地址
+- 流式下载统一处理 `acw_sc__v2` 挑战页（下载域同样会先给挑战页）
+
+### 新增
+
+- `invoker.ErrVerifyRequired`：蓝奏 CDN 要求浏览器验证时返回该哨兵错误，调用方据此回退其它下载源
+
 ## [0.2645.1] - 2026-11-02
 
 ### 变更

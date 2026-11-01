@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -158,12 +157,22 @@ func (s *Service) resolveFileURL(ctx context.Context, f *file.FileInfo) (string,
 	return s.resolve.GetDurlByURL(ctx, shareURL, resp.Info.Pwd)
 }
 
-// byURL 通过直链下载文件（流式写盘；直链 GET 用模块下载头 + 底层 client）。
+// byURL 通过直链下载文件（流式写盘；直链 GET 会自动过 acw_sc__v2 挑战）。
 func (s *Service) byURL(ctx context.Context, savePath, durl, referer string) error {
 	dir := filepath.Dir(savePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create dir failed: %w", err)
 	}
+
+	headers := s.inv.DownloadHeaders()
+	if referer != "" {
+		headers["Referer"] = referer
+	}
+	rc, err := s.inv.FetchStream(ctx, durl, headers)
+	if err != nil {
+		return fmt.Errorf("%w: %v", invoker.ErrDownloadFailed, err)
+	}
+	defer rc.Close()
 
 	f, err := os.Create(savePath)
 	if err != nil {
@@ -171,28 +180,7 @@ func (s *Service) byURL(ctx context.Context, savePath, durl, referer string) err
 	}
 	defer f.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, durl, nil)
-	if err != nil {
-		return fmt.Errorf("create request failed: %w", err)
-	}
-	for k, v := range s.inv.DownloadHeaders() {
-		req.Header.Set(k, v)
-	}
-	if referer != "" {
-		req.Header.Set("Referer", referer)
-	}
-
-	resp, err := s.inv.HTTPClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("download request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: http status %d", invoker.ErrDownloadFailed, resp.StatusCode)
-	}
-
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := io.Copy(f, rc); err != nil {
 		return fmt.Errorf("write file failed: %w", err)
 	}
 	return nil

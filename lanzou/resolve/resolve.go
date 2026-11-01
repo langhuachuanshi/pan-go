@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/langhuachuanshi/pan-go/lanzou/invoker"
@@ -59,11 +60,16 @@ type pageData struct {
 
 // iframeData iframe 页解析结果
 type iframeData struct {
-	WpSign      string
-	Fid         int
-	AjaxmURL    string
-	WebSignKey  string // websignkey/signs 动态值（新页面 var ajaxdata；空=旧页面硬编码 erCO）
+	WpSign     string
+	Fid        int
+	AjaxmURL   string   // 旧页面：相对端点 /ajaxm.php?file=N
+	AjaxURLs   []string // 新页面：绝对端点候选（domain1/domain2）
+	WebSignKey string   // websignkey/signs 动态值（新页面 var ajaxdata；空=旧页面硬编码 erCO）
+	Kdns       int      // kd 参数：页面 var kdns（1=killdns 已加载，0=未加载）
 }
+
+// kdnsFallbackDomain 是 kdns=0 时页面固定使用的下载域名。
+const kdnsFallbackDomain = "https://developer2oss.lanzouc.com:661"
 
 // ajaxmResp ajaxm.php 响应
 type ajaxmResp struct {
@@ -188,10 +194,9 @@ func (s *Service) FileInfoByURL(ctx context.Context, shareURL, pwd string) (*Fil
 // ===== 内部实现 =====
 
 // requestDownloadURL POST ajax 端点（旧 /ajaxm.php / 新 /ajaxfile.php）获取真实下载链接。
+// 2026-11 实测：新页面把端点写成绝对地址（domain1=apifile.woozooo.com、domain2=apifile.lanzouw.com），
+// 旧的相对路径写法继续兼容；两个候选按页面顺序逐个试。
 func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe *iframeData, fid int, pwd string) (string, error) {
-	ajaxmURL := "https://" + getBaseHost(referer) + iframe.AjaxmURL
-
-	// websignkey/signs：新页面取 var ajaxdata 动态值；旧页面回退硬编码 erCO
 	webSignKey := iframe.WebSignKey
 	if webSignKey == "" {
 		webSignKey = "erCO"
@@ -203,34 +208,56 @@ func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe
 		"signs":      webSignKey,
 		"sign":       iframe.WpSign,
 		"websign":    "",
-		"kd":         "0",
+		"kd":         strconv.Itoa(iframe.Kdns),
 		"ves":        "1",
 	}
 	if pwd != "" {
 		data["p"] = pwd
 	}
 
-	var resp ajaxmResp
-	err := s.inv.PostFormHeaders(ctx, ajaxmURL, data, map[string]string{
-		"Referer":          referer,
-		"X-Requested-With": "XMLHttpRequest",
-	}, &resp)
-	if err != nil {
-		return "", fmt.Errorf("ajaxm request failed: %w", err)
+	candidates := append([]string(nil), iframe.AjaxURLs...)
+	if iframe.AjaxmURL != "" {
+		if strings.HasPrefix(iframe.AjaxmURL, "http") {
+			candidates = append(candidates, iframe.AjaxmURL)
+		} else {
+			candidates = append(candidates, "https://"+getBaseHost(referer)+iframe.AjaxmURL)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("%w: no ajax endpoint in iframe page", invoker.ErrExtractFailed)
 	}
 
-	if resp.Zt != 1 {
-		if strings.Contains(resp.Mess, "密码") {
-			return "", invoker.ErrPasswordWrong
+	var lastErr error
+	for _, api := range candidates {
+		var resp ajaxmResp
+		err := s.inv.PostFormHeaders(ctx, api, data, map[string]string{
+			"Referer":          referer,
+			"X-Requested-With": "XMLHttpRequest",
+		}, &resp)
+		if err != nil {
+			lastErr = fmt.Errorf("ajaxm request failed: %w", err)
+			continue
 		}
-		if resp.Zt == 2 {
-			return "", invoker.ErrFileExpired
+		if resp.Zt != 1 {
+			if strings.Contains(resp.Mess, "密码") {
+				return "", invoker.ErrPasswordWrong
+			}
+			if resp.Zt == 2 {
+				return "", invoker.ErrFileExpired
+			}
+			lastErr = fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Mess)
+			continue
 		}
-		return "", fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Mess)
+		dom := resp.Dom
+		if iframe.Kdns == 0 {
+			dom = kdnsFallbackDomain
+		}
+		return dom + "/file/" + resp.Url, nil
 	}
-
-	// 拼接直链: dom + /file/ + url
-	return resp.Dom + "/file/" + resp.Url, nil
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%w: every ajax endpoint failed", invoker.ErrAPIError)
+	}
+	return "", lastErr
 }
 
 // ===== 页面解析 =====
@@ -275,11 +302,22 @@ func extractIframeData(html string) (*iframeData, error) {
 		return nil, fmt.Errorf("%w: wp_sign not found", invoker.ErrExtractFailed)
 	}
 
-	// ajax 端点：旧 /ajaxm.php?file=N 或新 /ajaxfile.php?file=N
+	// ajax 端点：旧 /ajaxm.php?file=N 或新 /ajaxfile.php?file=N（相对路径写法）
 	reAjax := regexp.MustCompile(`url\s*:\s*'(/ajax(?:m|file)\.php\?file=(\d+))'`)
 	if m := reAjax.FindStringSubmatch(html); len(m) > 2 {
 		data.AjaxmURL = m[1]
 		fmt.Sscanf(m[2], "%d", &data.Fid)
+	}
+
+	// 2026-11 实测：新页面端点是绝对地址，domain1（apifile.woozooo.com）、domain2（apifile.lanzouw.com）
+	reDomain := regexp.MustCompile(`var\s+domain[12]\s*=\s*'([^']+)'`)
+	for _, m := range reDomain.FindAllStringSubmatch(html, -1) {
+		if len(m) > 1 && strings.HasPrefix(m[1], "http") {
+			data.AjaxURLs = append(data.AjaxURLs, m[1])
+		}
+	}
+	if m := regexp.MustCompile(`var\s+kdns\s*=\s*(\d+)`).FindStringSubmatch(html); len(m) > 1 {
+		fmt.Sscanf(m[1], "%d", &data.Kdns)
 	}
 
 	// websignkey/signs 动态值：var ajaxdata = 'xxx'（旧页面无此变量则留空用旧硬编码）

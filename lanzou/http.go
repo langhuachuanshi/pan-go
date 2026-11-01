@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/langhuachuanshi/pan-go/core/httpx"
+	"github.com/langhuachuanshi/pan-go/lanzou/invoker"
 )
 
 // ===== HTTP 底层（执行走 core/httpx；cookie/挑战是 lanzou 方言，留在此处）=====
@@ -42,6 +43,92 @@ func (c *Client) absorbCookies(h http.Header) {
 			c.mergeCookies(cls)
 		}
 	}
+}
+
+// fetchStreamProbe 是流式下载探测前缀大小：挑战页/验证页都只有几 KB，读这个量足够判断。
+const fetchStreamProbe = 64 << 10
+
+// isVerifyPage 判断是否蓝奏 CDN 的「网络异常，需要验证后下载」页（要浏览器执行 JS 并点击）。
+func isVerifyPage(html string) bool {
+	return strings.Contains(html, "down_r(") || strings.Contains(html, "需要验证后下载")
+}
+
+// FetchStream 流式 GET（下载直链专用）：
+//   - 带浏览器特征头（UA/Accept/Accept-Language/Referer）：缺特征的请求会先吃挑战页；
+//   - 遇到 acw_sc__v2 挑战页自动解 cookie 重试；
+//   - 302 交给底层 client 跟随，真实文件在 Location 指向的 CDN 上；
+//   - 遇到「需要验证后下载」页返回 ErrVerifyRequired，调用方回退其它源。
+// 不主动携带登录 cookie：下载直链走匿名路径，带登录态更容易被风控。
+func (c *Client) FetchStream(ctx context.Context, rawURL string, headers map[string]string) (io.ReadCloser, error) {
+	var challenge string
+	target := rawURL
+	for round := 0; round < 6; round++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", defaultUA)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		req.Header.Set("Referer", rawURL)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		if challenge != "" {
+			ck := "acw_sc__v2=" + challenge
+			if prev := req.Header.Get("Cookie"); prev != "" {
+				ck = prev + "; " + ck
+			}
+			req.Header.Set("Cookie", ck)
+		}
+
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		// 302：Location 才是真实 CDN 地址（不能当失败丢掉）
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			loc := resp.Header.Get("Location")
+			resp.Body.Close()
+			if loc == "" {
+				return nil, fmt.Errorf("download: %d without Location", resp.StatusCode)
+			}
+			if u, uerr := req.URL.Parse(loc); uerr == nil {
+				target = u.String()
+			} else {
+				target = loc
+			}
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return nil, fmt.Errorf("download status %d: %s", resp.StatusCode, string(body))
+		}
+
+		head := make([]byte, fetchStreamProbe)
+		n, rerr := io.ReadFull(resp.Body, head)
+		head = head[:n]
+		if isChallengePage(string(head)) {
+			resp.Body.Close()
+			val, serr := solveAcwScV2(string(head), c.challenge)
+			if serr != nil {
+				return nil, fmt.Errorf("solve download challenge failed: %w", serr)
+			}
+			challenge = val
+			continue
+		}
+		if isVerifyPage(string(head)) {
+			resp.Body.Close()
+			return nil, invoker.ErrVerifyRequired
+		}
+		if rerr != nil && rerr != io.ErrUnexpectedEOF && rerr != io.EOF {
+			resp.Body.Close()
+			return nil, rerr
+		}
+		return io.NopCloser(io.MultiReader(bytes.NewReader(head), resp.Body)), nil
+	}
+	return nil, fmt.Errorf("download: 重定向或挑战轮次超限（%d 轮）", 6)
 }
 
 // get GET 并合并 Set-Cookie。

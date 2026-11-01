@@ -24,6 +24,9 @@ var (
 	ErrUploadFailed   = errors.New("lanzou: upload failed")
 	ErrDownloadFailed = errors.New("lanzou: download failed")
 	ErrAPIError       = errors.New("lanzou: api error")
+	// ErrVerifyRequired 蓝奏 CDN 返回「网络异常，需要验证后下载」页：
+	// 该页要求浏览器执行 JS 并点按钮，程序化下载拿不到，调用方应回退其它源。
+	ErrVerifyRequired = errors.New("lanzou: browser verification required")
 )
 
 // 端点路径（相对 pc.woozooo.com；完整 URL 亦可传）。
@@ -51,6 +54,8 @@ type Invoker interface {
 		onProgress func(uploaded, total int64), headers map[string]string, out any) error
 	// HTTPClient 供大文件流式下载使用（core Get/Post 会整包缓存，不适合下载）。
 	HTTPClient() *http.Client
+	// FetchStream 流式 GET，自动处理 acw_sc__v2 挑战页（下载直链会遇到）。
+	FetchStream(ctx context.Context, rawURL string, headers map[string]string) (io.ReadCloser, error)
 
 	// —— 模块配置（上传/下载策略用） ——
 	MaxSize() int
