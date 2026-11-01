@@ -2,6 +2,28 @@
 
 记录 lanzou 模块的全部对外变更；条目与 tag 一一对应，先补条目后打 tag。
 
+## [0.2645.1] - 2026-11-02
+
+### 变更
+
+- `go` 指令由 1.26.4 降到 1.20，依赖 core 升到 v0.2645.1（同为 1.20 口径）：使用方可编回 Go 1.20（Win7）
+
+### 修复
+
+- `absorbCookies` 改用 `http.Response.Cookies()` 解析 Set-Cookie：`http.ParseSetCookie` 是 Go 1.23 才有的标准库 API，1.20 下编不过
+
+## [0.2637.3] - 2026-09-12
+
+### 修复
+
+- `FolderList` / `RecycleList` 的 `Info` 改 `RawMessage`：成功响应 `info` 是数组，按字符串解会失败
+
+## [0.2637.2] - 2026-09-12
+
+### 修复
+
+- 直链解析适配蓝奏 ajax 端点变更：`/ajaxm.php` → `/ajaxfile.php`
+
 ## [0.2637.1] - 2026-09-12
 
 ### 变更

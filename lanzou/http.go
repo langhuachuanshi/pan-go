@@ -37,8 +37,9 @@ func (c *Client) baseHeaders(overrides map[string]string) map[string]string {
 // absorbCookies 把响应 Set-Cookie 合并进会话（蓝奏手动管理 cookie，不用 jar）。
 func (c *Client) absorbCookies(h http.Header) {
 	for _, line := range h.Values("Set-Cookie") {
-		if ck, err := http.ParseSetCookie(line); err == nil {
-			c.mergeCookies([]*http.Cookie{ck})
+		resp := &http.Response{Header: http.Header{"Set-Cookie": []string{line}}}
+		if cls := resp.Cookies(); len(cls) > 0 {
+			c.mergeCookies(cls)
 		}
 	}
 }
