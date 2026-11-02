@@ -46,6 +46,8 @@ type Invoker interface {
 	UserID() string
 	// FetchPageWithChallenge 取页面 HTML，自动处理 acw_sc__v2 挑战。
 	FetchPageWithChallenge(pageURL string) (string, error)
+	// FetchPageWithChallengeCtx 同上，但页面请求受调用方 ctx 控制（解析链路传外层超时）。
+	FetchPageWithChallengeCtx(ctx context.Context, pageURL string) (string, error)
 	// PostFormHeaders 带自定义头的表单 POST（ajaxm 需要 XHR 头）。
 	PostFormHeaders(ctx context.Context, path string, form map[string]string, headers map[string]string, out any) error
 	// PostMultipartStream 流式 multipart 上传（io.Pipe 边读边发，onProgress 为真实网络进度）。

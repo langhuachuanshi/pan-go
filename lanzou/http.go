@@ -133,7 +133,12 @@ func (c *Client) FetchStream(ctx context.Context, rawURL string, headers map[str
 
 // get GET 并合并 Set-Cookie。
 func (c *Client) get(rawURL string, headers map[string]string) ([]byte, http.Header, error) {
-	resp, err := c.exec.Do(context.Background(), &httpx.Request{
+	return c.getCtx(context.Background(), rawURL, headers)
+}
+
+// getCtx 同 get，但请求受调用方 ctx 控制（解析链路要把外层超时传进来）。
+func (c *Client) getCtx(ctx context.Context, rawURL string, headers map[string]string) ([]byte, http.Header, error) {
+	resp, err := c.exec.Do(ctx, &httpx.Request{
 		URL:     rawURL,
 		Headers: c.baseHeaders(headers),
 	})
@@ -146,7 +151,12 @@ func (c *Client) get(rawURL string, headers map[string]string) ([]byte, http.Hea
 
 // post 表单 POST 并合并 Set-Cookie。
 func (c *Client) post(rawURL string, data map[string]string, headers map[string]string) ([]byte, http.Header, error) {
-	resp, err := c.exec.Do(context.Background(), &httpx.Request{
+	return c.postCtx(context.Background(), rawURL, data, headers)
+}
+
+// postCtx 同 post，但请求受调用方 ctx 控制。
+func (c *Client) postCtx(ctx context.Context, rawURL string, data map[string]string, headers map[string]string) ([]byte, http.Header, error) {
+	resp, err := c.exec.Do(ctx, &httpx.Request{
 		Method:  http.MethodPost,
 		URL:     rawURL,
 		Body:    httpx.FormBody(data),

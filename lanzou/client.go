@@ -340,7 +340,7 @@ func (c *Client) PostFormHeaders(ctx context.Context, path string, form map[stri
 	} else {
 		c.initUID()
 	}
-	body, _, err := c.post(c.resolveURL(path, nil), form, headers)
+	body, _, err := c.postCtx(ctx, c.resolveURL(path, nil), form, headers)
 	if err != nil {
 		return err
 	}
@@ -433,7 +433,12 @@ func (c *Client) UserID() string {
 
 // FetchPageWithChallenge 取页面 HTML，自动处理 acw_sc__v2 挑战（最多两轮）。
 func (c *Client) FetchPageWithChallenge(pageURL string) (string, error) {
-	body, _, err := c.get(pageURL, map[string]string{"Referer": pageURL})
+	return c.FetchPageWithChallengeCtx(context.Background(), pageURL)
+}
+
+// FetchPageWithChallengeCtx 同 FetchPageWithChallenge，但页面请求受调用方 ctx 控制。
+func (c *Client) FetchPageWithChallengeCtx(ctx context.Context, pageURL string) (string, error) {
+	body, _, err := c.getCtx(ctx, pageURL, map[string]string{"Referer": pageURL})
 	if err != nil {
 		return "", err
 	}
@@ -446,7 +451,7 @@ func (c *Client) FetchPageWithChallenge(pageURL string) (string, error) {
 		return "", fmt.Errorf("solve challenge failed: %w", err)
 	}
 	c.mergeCookies([]*http.Cookie{{Name: "acw_sc__v2", Value: cookieVal}})
-	body, _, err = c.get(pageURL, map[string]string{"Referer": pageURL})
+	body, _, err = c.getCtx(ctx, pageURL, map[string]string{"Referer": pageURL})
 	if err != nil {
 		return "", err
 	}
@@ -457,7 +462,7 @@ func (c *Client) FetchPageWithChallenge(pageURL string) (string, error) {
 			return "", fmt.Errorf("solve challenge round 2 failed: %w", err)
 		}
 		c.mergeCookies([]*http.Cookie{{Name: "acw_sc__v2", Value: cookieVal}})
-		body, _, err = c.get(pageURL, map[string]string{"Referer": pageURL})
+		body, _, err = c.getCtx(ctx, pageURL, map[string]string{"Referer": pageURL})
 		if err != nil {
 			return "", err
 		}

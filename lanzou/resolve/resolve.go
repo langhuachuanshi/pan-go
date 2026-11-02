@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/langhuachuanshi/pan-go/lanzou/invoker"
 )
@@ -94,7 +95,7 @@ func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string) (strin
 	}
 
 	// Step 1: 请求分享页面（处理JS挑战）
-	mainHTML, err := s.inv.FetchPageWithChallenge(shareURL)
+	mainHTML, err := s.inv.FetchPageWithChallengeCtx(ctx, shareURL)
 	if err != nil {
 		return "", fmt.Errorf("fetch share page failed: %w", err)
 	}
@@ -107,7 +108,7 @@ func (s *Service) GetDurlByURL(ctx context.Context, shareURL, pwd string) (strin
 
 	// Step 3: 请求iframe页面获取 wp_sign
 	iframeURL := "https://" + getBaseHost(shareURL) + page.Iframe
-	iframeHTML, err := s.inv.FetchPageWithChallenge(iframeURL)
+	iframeHTML, err := s.inv.FetchPageWithChallengeCtx(ctx, iframeURL)
 	if err != nil {
 		return "", fmt.Errorf("fetch iframe failed: %w", err)
 	}
@@ -149,7 +150,7 @@ func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string) (*FileD
 		return nil, invoker.ErrInvalidURL
 	}
 
-	mainHTML, err := s.inv.FetchPageWithChallenge(shareURL)
+	mainHTML, err := s.inv.FetchPageWithChallengeCtx(ctx, shareURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch share page failed: %w", err)
 	}
@@ -166,7 +167,7 @@ func (s *Service) GetFileInfo(ctx context.Context, shareURL, pwd string) (*FileD
 	}
 
 	iframeURL := "https://" + getBaseHost(shareURL) + page.Iframe
-	iframeHTML, err := s.inv.FetchPageWithChallenge(iframeURL)
+	iframeHTML, err := s.inv.FetchPageWithChallengeCtx(ctx, iframeURL)
 	if err != nil {
 		return detail, nil // 返回部分信息
 	}
@@ -193,9 +194,18 @@ func (s *Service) FileInfoByURL(ctx context.Context, shareURL, pwd string) (*Fil
 
 // ===== 内部实现 =====
 
+// hedgeDelay 首个 ajax 端点发出后等多久没结果才补发其余候选。
+// 单跳正常 RTT ~100-250ms，400ms 只在真慢时才触发；平静网络不多发一个请求。
+const hedgeDelay = 400 * time.Millisecond
+
 // requestDownloadURL POST ajax 端点（旧 /ajaxm.php / 新 /ajaxfile.php）获取真实下载链接。
 // 2026-11 实测：新页面把端点写成绝对地址（domain1=apifile.woozooo.com、domain2=apifile.lanzouw.com），
-// 旧的相对路径写法继续兼容；两个候选按页面顺序逐个试。
+// 旧的相对路径写法继续兼容。
+//
+// 候选端点用延迟对冲：只先发第一个，hedgeDelay 内没结果（或它快速失败）才补发其余，
+// 先成功者胜。纯串行逐个重试时首个端点慢/挂会把整段解析拖到 5~10s（实测尾延迟大头）；
+// 全并行则平静网络也多付一个请求的握手成本（实测冷启动 p50 反而 +80ms），故取中间。
+// 终局结果（密码错/文件失效）与端点无关，一出现立即返回。
 func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe *iframeData, fid int, pwd string) (string, error) {
 	webSignKey := iframe.WebSignKey
 	if webSignKey == "" {
@@ -227,32 +237,87 @@ func (s *Service) requestDownloadURL(ctx context.Context, referer string, iframe
 		return "", fmt.Errorf("%w: no ajax endpoint in iframe page", invoker.ErrExtractFailed)
 	}
 
-	var lastErr error
-	for _, api := range candidates {
+	// raceCtx：胜者确定后取消在途请求；out 缓冲 = 候选总数，输家退出时不阻塞、无泄漏。
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type outcome struct {
+		durl     string
+		err      error
+		terminal bool // 成功或终局错误（密码错/文件失效），出现即返回
+	}
+	out := make(chan outcome, len(candidates))
+	worker := func(api string) {
 		var resp ajaxmResp
-		err := s.inv.PostFormHeaders(ctx, api, data, map[string]string{
+		err := s.inv.PostFormHeaders(raceCtx, api, data, map[string]string{
 			"Referer":          referer,
 			"X-Requested-With": "XMLHttpRequest",
 		}, &resp)
 		if err != nil {
-			lastErr = fmt.Errorf("ajaxm request failed: %w", err)
-			continue
+			out <- outcome{err: fmt.Errorf("ajaxm request failed: %w", err)}
+			return
 		}
-		if resp.Zt != 1 {
-			if strings.Contains(resp.Mess, "密码") {
-				return "", invoker.ErrPasswordWrong
+		if resp.Zt == 1 {
+			dom := resp.Dom
+			if iframe.Kdns == 0 {
+				dom = kdnsFallbackDomain
 			}
-			if resp.Zt == 2 {
-				return "", invoker.ErrFileExpired
+			out <- outcome{durl: dom + "/file/" + resp.Url, terminal: true}
+			return
+		}
+		if strings.Contains(resp.Mess, "密码") {
+			out <- outcome{err: invoker.ErrPasswordWrong, terminal: true}
+			return
+		}
+		if resp.Zt == 2 {
+			out <- outcome{err: invoker.ErrFileExpired, terminal: true}
+			return
+		}
+		out <- outcome{err: fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Mess)}
+	}
+
+	// 补发器：hedgeDelay 到点或收到 kick（已发请求全数失败）时发出剩余候选。
+	// raceCtx 已结束时为未发出的候选补记账结果，收集器不会挂等不存在的请求。
+	rest := candidates[1:]
+	kick := make(chan struct{}, 1)
+	go func() {
+		select {
+		case <-raceCtx.Done():
+		case <-time.After(hedgeDelay):
+		case <-kick:
+		}
+		if raceCtx.Err() != nil {
+			for range rest {
+				out <- outcome{err: fmt.Errorf("%w: canceled before launch", invoker.ErrAPIError)}
 			}
-			lastErr = fmt.Errorf("%w: %s", invoker.ErrAPIError, resp.Mess)
-			continue
+			return
 		}
-		dom := resp.Dom
-		if iframe.Kdns == 0 {
-			dom = kdnsFallbackDomain
+		for _, api := range rest {
+			go worker(api)
 		}
-		return dom + "/file/" + resp.Url, nil
+	}()
+	go worker(candidates[0])
+
+	// 收集器：终局结果（成功/密码错/文件失效）即返；在途全败且还有候选 → kick 快速补发。
+	var lastErr error
+	pending := 1 // 在途请求数，仅用于判断「全败快补发」，不追求精确
+	for settled := 0; settled < len(candidates); settled++ {
+		oc := <-out
+		pending--
+		if oc.terminal {
+			cancel()
+			if oc.durl != "" {
+				return oc.durl, nil
+			}
+			return "", oc.err
+		}
+		lastErr = oc.err
+		if pending <= 0 && len(rest) > 0 {
+			select {
+			case kick <- struct{}{}:
+			default:
+			}
+		}
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("%w: every ajax endpoint failed", invoker.ErrAPIError)
